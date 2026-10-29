@@ -58,6 +58,13 @@ internal static class UiHost
         }
 
         var application = new System.Windows.Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        // A bug in the window must not take the tray app (and the styling)
+        // down with it.
+        application.DispatcherUnhandledException += (_, e) =>
+        {
+            Log.Error("Unhandled exception in the settings window", e.Exception);
+            e.Handled = true;
+        };
         application.Resources.MergedDictionaries.Add(new ThemesDictionary());
         application.Resources.MergedDictionaries.Add(new ControlsDictionary());
         ApplicationThemeManager.ApplySystemTheme(true);
