@@ -28,7 +28,8 @@ internal static class Acl
             var security = info.GetAccessControl();
             foreach (var sid in AppContainerGroups)
             {
-                security.AddAccessRule(new FileSystemAccessRule(sid, rights,
+                // Synchronize is needed to wait on handles (and part of GENERIC_READ).
+                security.AddAccessRule(new FileSystemAccessRule(sid, rights | FileSystemRights.Synchronize,
                     InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
                     PropagationFlags.None, AccessControlType.Allow));
             }

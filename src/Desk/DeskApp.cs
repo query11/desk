@@ -46,8 +46,14 @@ internal sealed class DeskApp : ApplicationContext
         PrepareDirectories();
         LoadTheme();
 
+        bool arm64 = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture ==
+                     System.Runtime.InteropServices.Architecture.Arm64;
         try
         {
+            if (arm64)
+            {
+                throw new PlatformNotSupportedException("ARM64 Windows is not supported yet");
+            }
             var injector = TapInjector.Deploy();
             _targets = new TargetManager(injector, SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext());
             _targets.ExplorerChanged += OnExplorerChanged;
@@ -88,7 +94,9 @@ internal sealed class DeskApp : ApplicationContext
 
         if (_targets == null)
         {
-            Notify("Desk 无法启动引擎", "没有找到或无法加载 DeskTap.dll，请确认它和 Desk.exe 在同一个文件夹。");
+            Notify("Desk 无法启动引擎", arm64
+                ? "这个版本只支持 x64 的 Windows，ARM64 版本还在计划中。"
+                : "没有找到或无法加载 DeskTap.dll，请确认它和 Desk.exe 在同一个文件夹。");
         }
         else if (!_settings.WelcomeShown)
         {

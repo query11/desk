@@ -268,6 +268,16 @@ std::optional<wux::Style> TryLoadStyle(std::wstring_view type,
             *error = HResultMessage(e);
         }
     }
+    // Some internal types can't be used as a TargetType at all. Properties
+    // every element has (Margin, Width, Visibility, ...) still resolve here.
+    constexpr std::wstring_view kFrameworkElement = L"Windows.UI.Xaml.FrameworkElement";
+    if (type != kFrameworkElement && fallbackType != kFrameworkElement) {
+        try {
+            return LoadStyle(kFrameworkElement, setters);
+        } catch (winrt::hresult_error const&) {
+            // Keep the more specific error.
+        }
+    }
     return std::nullopt;
 }
 

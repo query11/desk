@@ -29,6 +29,8 @@ struct AppliedProperty {
     int64_t callbackToken = 0;
     ULONGLONG reapplyWindowStart = 0;
     uint32_t reapplyCount = 0;
+    // Set when something kept overwriting the value; we stop competing.
+    bool abandoned = false;
 };
 
 struct TrackedElement {
@@ -283,7 +285,7 @@ void OnPropertyChanged(InstanceHandle handle,
         auto applied = std::find_if(
             properties.begin(), properties.end(),
             [&](const AppliedProperty& p) { return p.property == property; });
-        if (applied == properties.end()) {
+        if (applied == properties.end() || applied->abandoned) {
             return;
         }
 
@@ -300,10 +302,9 @@ void OnPropertyChanged(InstanceHandle handle,
             applied->reapplyCount = 0;
         }
         if (++applied->reapplyCount > 20) {
-            if (applied->reapplyCount == 21) {
-                DLOG(L"Something keeps overwriting a %s property, giving up",
-                     winrt::get_class_name(sender).c_str());
-            }
+            applied->abandoned = true;
+            DLOG(L"Something keeps overwriting a %s property, giving up",
+                 winrt::get_class_name(sender).c_str());
             return;
         }
 

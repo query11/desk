@@ -51,11 +51,17 @@ DeskBlurBrush::DeskBlurBrush(wux::UIElement const& element, BlurParams params)
         auto weak = get_weak();
         auto dispatcher = m_dispatcher;
         auto refresh = [weak, dispatcher](auto&&, auto&&) {
-            dispatcher.TryEnqueue([weak] {
-                if (auto self = weak.get()) {
-                    self->Refresh();
-                }
-            });
+            try {
+                dispatcher.TryEnqueue([weak] {
+                    try {
+                        if (auto self = weak.get()) {
+                            self->Refresh();
+                        }
+                    } catch (...) {
+                    }
+                });
+            } catch (...) {
+            }
         };
 
         m_uiSettings = winrt::Windows::UI::ViewManagement::UISettings();
