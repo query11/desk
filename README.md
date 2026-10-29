@@ -10,7 +10,7 @@ Windows 11 桌面美化工具（开发中）。第一阶段做两件事：
 
 ## 使用
 
-1. 在 [Actions](../../actions) 里打开最新一次成功的 build，下载 `Desk-…` 压缩包并解压。
+1. 在 [Actions](https://github.com/query11/desk/actions) 里打开最新一次成功的 build，下载 `Desk-…` 压缩包并解压。
 2. 运行 `Desk.exe`，托盘里会出现 Desk 图标，任务栏和开始菜单会在几秒内变成新样式。
 3. 右键托盘图标可以：
    - 切换主题；
