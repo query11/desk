@@ -1,0 +1,45 @@
+// Desk 整条毛玻璃：保留原生的整条任务栏布局，只把背景换成实时模糊。
+{
+  "name": "Desk 整条毛玻璃",
+  "description": "原生布局的整条任务栏，背景换成实时模糊；开始菜单为毛玻璃。",
+
+  "constants": {
+    "radius": "8",
+    "barBlur": "24",
+    "menuBlur": "30",
+    "saturation": "1.25",
+    "barTint": { "light": "#B3F3F3F3", "dark": "#A6202020" },
+    "menuTint": { "light": "#8CF3F3F3", "dark": "#80202020" },
+    "stroke": { "light": "#14000000", "dark": "#1FFFFFFF" },
+    "barMaterial": "<DeskBlur BlurAmount=\"$barBlur\" TintColor=\"$barTint\" TintSaturation=\"$saturation\"/>",
+    "menuMaterial": "<DeskBlur BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintSaturation=\"$saturation\"/>"
+  },
+
+  "taskbar": {
+    "common": [
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundFill",
+        "styles": ["Fill:=$barMaterial"]
+      },
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundStroke",
+        "styles": ["Fill=$stroke"]
+      }
+    ],
+    "floating": [],
+    "maximized": []
+  },
+
+  "startMenu": {
+    "common": [
+      {
+        "target": "Border#AcrylicBorder",
+        "styles": ["Background:=$menuMaterial", "BorderBrush=$stroke", "BorderThickness=1", "CornerRadius=$radius"]
+      },
+      {
+        "target": "Border#AcrylicOverlay",
+        "styles": ["Visibility=Collapsed"]
+      }
+    ]
+  }
+}

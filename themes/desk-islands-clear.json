@@ -1,0 +1,78 @@
+// Desk 浮岛 · 高通透：和默认主题布局相同，着色更淡，模糊透出更多背景。
+// 浅色壁纸上文字可能偏淡，可以把 islandTint / menuTint 的前两位调大。
+{
+  "name": "Desk 浮岛 · 高通透",
+  "description": "和「Desk 浮岛」相同的布局，着色更淡、更通透。",
+
+  "constants": {
+    "radius": "8",
+    "gap": "4",
+    "islandBlur": "20",
+    "menuBlur": "28",
+    "saturation": "1.4",
+    "islandTint": { "light": "#73F3F3F3", "dark": "#66202020" },
+    "menuTint": { "light": "#59F3F3F3", "dark": "#4D202020" },
+    "stroke": { "light": "#1A000000", "dark": "#26FFFFFF" },
+    "islandMaterial": "<DeskBlur BlurAmount=\"$islandBlur\" TintColor=\"$islandTint\" TintSaturation=\"$saturation\"/>",
+    "menuMaterial": "<DeskBlur BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintSaturation=\"$saturation\"/>"
+  },
+
+  "taskbar": {
+    "common": [],
+    "floating": [
+      {
+        "target": "Taskbar.TaskbarFrame",
+        "styles": ["Width=Auto", "HorizontalAlignment=Center", "Margin=250,0,250,0"]
+      },
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid",
+        "styles": ["Padding=6,0,6,0"]
+      },
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground",
+        "styles": ["Margin=-6,$gap,-6,$gap"]
+      },
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundFill",
+        "styles": ["Fill:=$islandMaterial", "RadiusX=$radius", "RadiusY=$radius", "Stroke=$stroke", "StrokeThickness=1"]
+      },
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundStroke",
+        "styles": ["Visibility=Collapsed"]
+      },
+      {
+        "target": "Taskbar.AugmentedEntryPointButton#AugmentedEntryPointButton > Taskbar.TaskListButtonPanel#ExperienceToggleButtonRootPanel",
+        "styles": ["Margin=0"]
+      },
+      {
+        "target": "SystemTray.SystemTrayFrame > Grid#SystemTrayFrameGrid, SystemTray.SystemTrayFrame > StackPanel#SystemTrayFrameGrid",
+        "styles": [
+          "Background:=$islandMaterial",
+          "BorderBrush=$stroke",
+          "BorderThickness=1",
+          "CornerRadius=$radius",
+          "Margin=0,$gap,6,$gap",
+          "Padding=6,0,2,0"
+        ]
+      }
+    ],
+    "maximized": []
+  },
+
+  "startMenu": {
+    "common": [
+      {
+        "target": "Border#AcrylicBorder",
+        "styles": ["Background:=$menuMaterial", "BorderBrush=$stroke", "BorderThickness=1", "CornerRadius=$radius"]
+      },
+      {
+        "target": "Border#AcrylicOverlay",
+        "styles": ["Visibility=Collapsed"]
+      },
+      {
+        "target": "Border#StartDropShadow, Border#RootGridDropShadow, Border#RightCompanionDropShadow",
+        "styles": ["CornerRadius=$radius"]
+      }
+    ]
+  }
+}

@@ -1,0 +1,107 @@
+// Desk 浮岛（默认主题）
+//
+// 规则写法兼容 Windhawk「Windows 11 Taskbar Styler」的选择器语法：
+//   target:  "父元素 > 子元素"，元素写成 类型#名称，可以用 [序号] 和 [属性=值]
+//   styles:  "属性=值"，或者 "属性:=<XAML 对象/>"
+// $名称 引用下面的常量；常量可以分别给浅色模式和深色模式设置不同的值。
+// 保存这个文件后，Desk 会立即重新应用。
+{
+  "name": "Desk 浮岛",
+  "description": "居中的应用岛和右侧的托盘岛，背景实时模糊；开始菜单为毛玻璃。窗口最大化时恢复成整条任务栏。",
+
+  "constants": {
+    // 圆角和岛与任务栏边缘的上下间距（单位：像素，按 100% 缩放计）
+    "radius": "8",
+    "gap": "4",
+
+    // 模糊强度（高斯模糊的标准差）和饱和度
+    "islandBlur": "24",
+    "menuBlur": "30",
+    "saturation": "1.25",
+
+    // 着色：#AARRGGBB，AA 是不透明度（B3≈70%，A6≈65%，8C≈55%，80≈50%）
+    "islandTint": { "light": "#B3F3F3F3", "dark": "#A6202020" },
+    "menuTint": { "light": "#8CF3F3F3", "dark": "#80202020" },
+
+    // 1 像素描边：浅色模式偏暗，深色模式偏亮
+    "stroke": { "light": "#14000000", "dark": "#1FFFFFFF" },
+
+    "islandMaterial": "<DeskBlur BlurAmount=\"$islandBlur\" TintColor=\"$islandTint\" TintSaturation=\"$saturation\"/>",
+    "menuMaterial": "<DeskBlur BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintSaturation=\"$saturation\"/>"
+  },
+
+  "taskbar": {
+    // 任何时候都生效的规则
+    "common": [],
+
+    // 平时：浮岛
+    "floating": [
+      // 应用岛：宽度跟随图标数量，居中；左右各留 250 的空间给托盘岛
+      {
+        "target": "Taskbar.TaskbarFrame",
+        "styles": ["Width=Auto", "HorizontalAlignment=Center", "Margin=250,0,250,0"]
+      },
+      // 图标离岛的左右边缘留一点距离
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid",
+        "styles": ["Padding=6,0,6,0"]
+      },
+      // 背景层向左右延伸回岛的边缘，上下各收进 $gap，形成“浮起来”的岛
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground",
+        "styles": ["Margin=-6,$gap,-6,$gap"]
+      },
+      // 岛的材质：实时模糊 + 着色 + 圆角 + 描边
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundFill",
+        "styles": ["Fill:=$islandMaterial", "RadiusX=$radius", "RadiusY=$radius", "Stroke=$stroke", "StrokeThickness=1"]
+      },
+      // 去掉原生任务栏顶部的那条分隔线
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundStroke",
+        "styles": ["Visibility=Collapsed"]
+      },
+      // 小组件（天气）按钮在自动宽度下的多余边距
+      {
+        "target": "Taskbar.AugmentedEntryPointButton#AugmentedEntryPointButton > Taskbar.TaskListButtonPanel#ExperienceToggleButtonRootPanel",
+        "styles": ["Margin=0"]
+      },
+      // 托盘岛
+      {
+        "target": "SystemTray.SystemTrayFrame > Grid#SystemTrayFrameGrid, SystemTray.SystemTrayFrame > StackPanel#SystemTrayFrameGrid",
+        "styles": [
+          "Background:=$islandMaterial",
+          "BorderBrush=$stroke",
+          "BorderThickness=1",
+          "CornerRadius=$radius",
+          "Margin=0,$gap,6,$gap",
+          "Padding=6,0,2,0"
+        ]
+      }
+    ],
+
+    // 有窗口最大化、并且选择了“恢复成整条任务栏”时：
+    // 这里留空，表示恢复成系统原生的整条任务栏。
+    "maximized": []
+  },
+
+  "startMenu": {
+    "common": [
+      // 开始菜单（以及手机连接侧栏）的背景：实时模糊 + 着色 + 描边
+      {
+        "target": "Border#AcrylicBorder",
+        "styles": ["Background:=$menuMaterial", "BorderBrush=$stroke", "BorderThickness=1", "CornerRadius=$radius"]
+      },
+      // 系统叠加在亚克力上的一层，会让背景发灰发闷
+      {
+        "target": "Border#AcrylicOverlay",
+        "styles": ["Visibility=Collapsed"]
+      },
+      // 阴影的圆角和背景保持一致
+      {
+        "target": "Border#StartDropShadow, Border#RootGridDropShadow, Border#RightCompanionDropShadow",
+        "styles": ["CornerRadius=$radius"]
+      }
+    ]
+  }
+}

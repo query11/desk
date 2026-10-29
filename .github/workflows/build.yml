@@ -24,7 +24,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cmake --build build/DeskTap --config Release
+          cmake --build build/DeskTap --config Release 2>&1 | Tee-Object -FilePath build/desktap-build.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Set up .NET
@@ -39,7 +39,7 @@ jobs:
         run: |
           dotnet publish src/Desk/Desk.csproj -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:EnableCompressionInSingleFile=true -o dist/Desk
+            -p:EnableCompressionInSingleFile=true -o dist/Desk 2>&1 | Tee-Object -FilePath build/desk-build.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Package
@@ -57,3 +57,15 @@ jobs:
           name: Desk-${{ github.sha }}
           path: dist/Desk
           if-no-files-found: error
+
+      # Last step, so that the warnings end up at the tail of the log.
+      - name: Warnings summary
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($log in Get-ChildItem build -Filter *-build.log -ErrorAction SilentlyContinue) {
+            $lines = Select-String -Path $log.FullName -Pattern 'warning|error' |
+              ForEach-Object { $_.Line.Trim() } | Sort-Object -Unique | Select-Object -First 80
+            Write-Output "===== $($log.Name): $($lines.Count) lines with warnings/errors"
+            $lines | ForEach-Object { Write-Output $_ }
+          }
