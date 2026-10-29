@@ -4,6 +4,7 @@
 #include "blur.h"
 #include "effects.h"
 #include "log.h"
+#include "paths.h"
 
 namespace desk {
 
@@ -214,9 +215,18 @@ wuc::CompositionBrush DeskBlurBrush::CreateEffectBrush() {
     constexpr float kLumaG = 0.7152f;
     constexpr float kLumaB = 0.0722f;
 
+    bool host = m_params.source == BlurParams::Source::Host ||
+                (m_params.source == BlurParams::Source::Auto &&
+                 paths::IsStartMenu());
+
     auto blur = winrt::make_self<effects::GaussianBlurEffect>();
     blur->Source = wuc::CompositionEffectSourceParameter(L"backdrop");
     blur->BlurAmount = m_params.blurAmount;
+    // The host backdrop ends at the window's edges; a soft border would fade
+    // the blur out there and show the unblurred content behind.
+    if (host) {
+        blur->BorderMode = D2D1_BORDER_MODE_HARD;
+    }
     blur->Name(L"Blur");
 
     wge::IGraphicsEffectSource top = *blur;
@@ -332,7 +342,9 @@ wuc::CompositionBrush DeskBlurBrush::CreateEffectBrush() {
 
     auto factory = m_compositor.CreateEffectFactory(*composite);
     auto brush = factory.CreateBrush();
-    brush.SetSourceParameter(L"backdrop", m_compositor.CreateBackdropBrush());
+    brush.SetSourceParameter(L"backdrop", host
+                                              ? m_compositor.CreateHostBackdropBrush()
+                                              : m_compositor.CreateBackdropBrush());
     if (noiseBrush) {
         brush.SetSourceParameter(L"noise", noiseBrush);
     }

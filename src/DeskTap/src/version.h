@@ -1,6 +1,6 @@
 #pragma once
 
-#define DESKTAP_VERSION L"0.2.0"
+#define DESKTAP_VERSION L"0.3.0"
 
 // {DCF03332-1967-4CC8-97F3-8245FD81D904}
 inline constexpr CLSID CLSID_DeskTap = {

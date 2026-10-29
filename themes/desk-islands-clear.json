@@ -36,6 +36,11 @@
       "dark": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#40FFFFFF\" Offset=\"0\"/><GradientStop Color=\"#14FFFFFF\" Offset=\"0.5\"/><GradientStop Color=\"#0AFFFFFF\" Offset=\"1\"/></LinearGradientBrush>"
     },
 
+    // 左侧信息岛的文字颜色：数值、标签和占用过高时的颜色
+    "monitorText": { "light": "#E4000000", "dark": "#FFFFFFFF" },
+    "monitorSecondaryText": { "light": "#8A000000", "dark": "#B3FFFFFF" },
+    "monitorWarning": { "light": "#FFC42B1C", "dark": "#FFFF99A4" },
+
     // ---- 开始菜单 ----
     "menuRadius": "8",
     "menuBlur": "22",
@@ -84,10 +89,22 @@
         "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundStroke",
         "styles": ["Visibility=Collapsed"]
       },
-      // 小组件（天气）按钮在自动宽度下的多余边距
+      // 系统的小组件（天气）按钮在浮岛布局里会跑到应用岛外面，隐藏它（Win + W 仍可打开小组件）
       {
-        "target": "Taskbar.AugmentedEntryPointButton#AugmentedEntryPointButton > Taskbar.TaskListButtonPanel#ExperienceToggleButtonRootPanel",
-        "styles": ["Margin=0"]
+        "target": "Taskbar.AugmentedEntryPointButton#AugmentedEntryPointButton",
+        "styles": ["Visibility=Collapsed"]
+      },
+      // 左侧信息岛（网速、CPU、内存），和另外两个岛同样的材质
+      {
+        "target": "Border#DeskMonitorIsland",
+        "styles": [
+          "Background:=$islandMaterial",
+          "BorderBrush:=$islandStroke",
+          "BorderThickness=1",
+          "CornerRadius=$radius",
+          "Margin=8,$gap,0,$gap",
+          "Padding=12,0,12,0"
+        ]
       },
       // 托盘岛
       {
@@ -115,9 +132,9 @@
         "target": "Border#AcrylicBorder",
         "styles": ["Background:=$menuMaterial", "BorderBrush:=$menuStroke", "BorderThickness=1", "CornerRadius=$menuRadius"]
       },
-      // 系统叠加在亚克力上的一层，会让背景发灰发闷
+      // 系统叠加在亚克力上的两层半透明底色，会让玻璃发白、发闷
       {
-        "target": "Border#AcrylicOverlay",
+        "target": "Border#AcrylicOverlay, Border#LayerBorder",
         "styles": ["Visibility=Collapsed"]
       },
       // 阴影的圆角和背景保持一致

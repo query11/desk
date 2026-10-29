@@ -11,6 +11,9 @@
     "islandSaturation": "1.4",
     "islandNoise": "0.025",
     "barStroke": { "light": "#40FFFFFF", "dark": "#1AFFFFFF" },
+    "monitorText": { "light": "#E4000000", "dark": "#FFFFFFFF" },
+    "monitorSecondaryText": { "light": "#8A000000", "dark": "#B3FFFFFF" },
+    "monitorWarning": { "light": "#FFC42B1C", "dark": "#FFFF99A4" },
 
     "menuRadius": "8",
     "menuBlur": "28",
@@ -51,7 +54,7 @@
         "styles": ["Background:=$menuMaterial", "BorderBrush:=$menuStroke", "BorderThickness=1", "CornerRadius=$menuRadius"]
       },
       {
-        "target": "Border#AcrylicOverlay",
+        "target": "Border#AcrylicOverlay, Border#LayerBorder",
         "styles": ["Visibility=Collapsed"]
       },
       {

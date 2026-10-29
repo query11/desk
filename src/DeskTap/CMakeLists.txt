@@ -19,6 +19,7 @@ add_library(DeskTap SHARED
     src/engine.cpp
     src/install.cpp
     src/log.cpp
+    src/monitor.cpp
     src/paths.cpp
     src/regpatch.cpp
     src/rules.cpp
@@ -59,6 +60,7 @@ target_link_libraries(DeskTap PRIVATE
     oleaut32
     user32
     gdi32
+    iphlpapi
     advapi32
     comctl32
     shlwapi

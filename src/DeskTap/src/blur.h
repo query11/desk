@@ -3,6 +3,13 @@
 namespace desk {
 
 struct BlurParams {
+    // What gets blurred. In-app backdrop is everything drawn behind the
+    // element by the same process; host backdrop is what's behind the window.
+    // An app container (the Start menu) only sees its own content in-app, so
+    // Auto picks the host backdrop there.
+    enum class Source { Auto, App, Host };
+
+    Source source = Source::Auto;
     float blurAmount = 30.0f;
     winrt::Windows::UI::Color tint{0x80, 0x20, 0x20, 0x20};
     float saturation = 1.0f;

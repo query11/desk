@@ -23,6 +23,10 @@ public partial class TaskbarPage : Page
         };
         ClickThroughSwitch.Checked += (_, _) => SetClickThrough(true);
         ClickThroughSwitch.Unchecked += (_, _) => SetClickThrough(false);
+        Wire(MonitorSwitch, value => _app.ShowMonitor = value);
+        Wire(MonitorNetworkBox, value => _app.MonitorNetwork = value);
+        Wire(MonitorCpuBox, value => _app.MonitorCpu = value);
+        Wire(MonitorMemoryBox, value => _app.MonitorMemory = value);
 
         Loaded += (_, _) =>
         {
@@ -30,6 +34,24 @@ public partial class TaskbarPage : Page
             Refresh();
         };
         Unloaded += (_, _) => _app.StateChanged -= Refresh;
+    }
+
+    private void Wire(System.Windows.Controls.Primitives.ToggleButton toggle, Action<bool> set)
+    {
+        toggle.Checked += (_, _) =>
+        {
+            if (!_updating)
+            {
+                set(true);
+            }
+        };
+        toggle.Unchecked += (_, _) =>
+        {
+            if (!_updating)
+            {
+                set(false);
+            }
+        };
     }
 
     private void SetClickThrough(bool enabled)
@@ -48,6 +70,11 @@ public partial class TaskbarPage : Page
             _parameters.Refresh();
             MaximizeBox.SelectedIndex = (int)_app.MaximizeMode;
             ClickThroughSwitch.IsChecked = _app.ClickThrough;
+            MonitorSwitch.IsChecked = _app.ShowMonitor;
+            MonitorNetworkBox.IsChecked = _app.MonitorNetwork;
+            MonitorCpuBox.IsChecked = _app.MonitorCpu;
+            MonitorMemoryBox.IsChecked = _app.MonitorMemory;
+            MonitorNetworkBox.IsEnabled = MonitorCpuBox.IsEnabled = MonitorMemoryBox.IsEnabled = _app.ShowMonitor;
         }
         finally
         {

@@ -39,8 +39,16 @@ internal sealed class Settings
 
     public bool StyleStartMenu { get; set; } = true;
 
-    /// <summary>Dark by default: translucent dark glass with white text, whichever Windows mode is on.</summary>
-    public StartMenuScheme StartMenuScheme { get; set; } = StartMenuScheme.Dark;
+    public StartMenuScheme StartMenuScheme { get; set; } = StartMenuScheme.System;
+
+    /// <summary>The island with the network speed, CPU and memory usage on the left of the taskbar.</summary>
+    public bool ShowMonitor { get; set; } = true;
+
+    public bool MonitorNetwork { get; set; } = true;
+
+    public bool MonitorCpu { get; set; } = true;
+
+    public bool MonitorMemory { get; set; } = true;
 
     public bool ClickThrough { get; set; }
 

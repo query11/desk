@@ -11,6 +11,7 @@
 #include "clickthrough.h"
 #include "config.h"
 #include "log.h"
+#include "monitor.h"
 #include "paths.h"
 #include "surface.h"
 #include "values.h"
@@ -57,6 +58,13 @@ struct ThreadState {
     int modifying = 0;
     std::vector<InstanceHandle> pendingRemovals;
     size_t addsSincePrune = 0;
+
+    // The window content whose RequestedTheme we set (Start menu scheme).
+    winrt::weak_ref<wux::FrameworkElement> themedRoot;
+    wux::ElementTheme originalTheme = wux::ElementTheme::Default;
+    std::optional<wux::ElementTheme> wantedTheme;
+    int64_t themeCallbackToken = 0;
+    uint64_t themeSerial = UINT64_MAX;
 };
 
 // Each XAML UI thread has its own elements; all access happens on that thread.
@@ -388,6 +396,37 @@ void SetDelayed(InstanceHandle handle,
     });
 }
 
+// Logs the brush a rule replaces, once per element name and brush type. The
+// details of an AcrylicBrush show how the system draws a surface natively.
+void LogReplacedBrush(wux::FrameworkElement const& element,
+                      wf::IInspectable const& original) {
+    auto brush = original.try_as<wuxm::Brush>();
+    if (!brush) {
+        return;
+    }
+    static thread_local std::unordered_set<std::wstring> logged;
+    std::wstring name(element.Name());
+    std::wstring type(winrt::get_class_name(brush));
+    if (!logged.insert(name + L"|" + type).second) {
+        return;
+    }
+    if (auto acrylic = brush.try_as<wuxm::AcrylicBrush>()) {
+        auto tint = acrylic.TintColor();
+        auto luminosity = acrylic.TintLuminosityOpacity();
+        DLOG(L"%s#%s had AcrylicBrush: source=%s tint=#%02X%02X%02X%02X "
+             L"tintOpacity=%.2f luminosity=%s",
+             winrt::get_class_name(element).c_str(), name.c_str(),
+             acrylic.BackgroundSource() == wuxm::AcrylicBackgroundSource::HostBackdrop
+                 ? L"HostBackdrop"
+                 : L"Backdrop",
+             tint.A, tint.R, tint.G, tint.B, acrylic.TintOpacity(),
+             luminosity ? std::to_wstring(luminosity.Value()).c_str() : L"auto");
+    } else {
+        DLOG(L"%s#%s had %s", winrt::get_class_name(element).c_str(),
+             name.c_str(), type.c_str());
+    }
+}
+
 void Apply(ThreadState& state,
            InstanceHandle handle,
            TrackedElement& tracked,
@@ -443,6 +482,7 @@ void Apply(ThreadState& state,
         applied.signature = style->signature;
         applied.original = ReadLocalValueSafe(element, style->property);
         applied.applied = value.value;
+        LogReplacedBrush(element, applied.original);
 
         if (initial && NeedsDelayedSet(element, style->property, value.value)) {
             SetDelayed(handle, element, style->property, value);
@@ -520,6 +560,69 @@ void Prune(ThreadState& state) {
     }
 }
 
+// The Start menu's color scheme: the window content gets the requested
+// theme, so text and controls switch along with the material. The Windows
+// mode isn't changed. The per-element rules cover parts with their own theme.
+void ApplyRequestedTheme(const Config& config) {
+    if (!t_state || !paths::IsStartMenu()) {
+        return;
+    }
+    auto& state = *t_state;
+    state.themeSerial = config.serial;
+    state.wantedTheme = config.enabled ? config.requestedTheme : std::nullopt;
+
+    wux::FrameworkElement root{nullptr};
+    try {
+        if (auto window = wux::Window::Current()) {
+            root = window.Content().try_as<wux::FrameworkElement>();
+        }
+    } catch (...) {
+    }
+
+    auto previous = state.themedRoot.get();
+    if (previous && (previous != root || !state.wantedTheme)) {
+        try {
+            previous.UnregisterPropertyChangedCallback(
+                wux::FrameworkElement::RequestedThemeProperty(),
+                state.themeCallbackToken);
+            previous.RequestedTheme(state.originalTheme);
+        } catch (...) {
+        }
+        state.themedRoot = nullptr;
+        DLOG(L"Window content theme restored");
+    }
+    if (!state.wantedTheme || !root) {
+        return;
+    }
+
+    if (state.themedRoot.get() != root) {
+        state.originalTheme = root.RequestedTheme();
+        state.themedRoot = winrt::make_weak(root);
+        // The shell sets the theme again when the Windows mode changes.
+        state.themeCallbackToken = root.RegisterPropertyChangedCallback(
+            wux::FrameworkElement::RequestedThemeProperty(),
+            [](wux::DependencyObject const& sender, wux::DependencyProperty const&) {
+                try {
+                    if (!t_state || !t_state->wantedTheme) {
+                        return;
+                    }
+                    auto element = sender.as<wux::FrameworkElement>();
+                    if (element.RequestedTheme() != *t_state->wantedTheme) {
+                        t_state->originalTheme = element.RequestedTheme();
+                        element.RequestedTheme(*t_state->wantedTheme);
+                    }
+                } catch (...) {
+                }
+            });
+    }
+    if (root.RequestedTheme() != *state.wantedTheme) {
+        root.RequestedTheme(*state.wantedTheme);
+    }
+    DLOG(L"Window content (%s) theme: %s",
+         winrt::get_class_name(root).c_str(),
+         *state.wantedTheme == wux::ElementTheme::Dark ? L"dark" : L"light");
+}
+
 void ReapplyAll() {
     if (!t_state) {
         return;
@@ -556,7 +659,9 @@ void ReapplyAll() {
 
     if (paths::IsExplorer()) {
         clickthrough::OnConfigApplied(config->enabled && config->clickThrough);
+        monitor::OnConfigApplied(*config);
     }
+    ApplyRequestedTheme(*config);
 
     DLOG(L"Applied config %llu to %zu elements on this thread", config->serial,
          handles.size());
@@ -590,9 +695,22 @@ void OnElementAdded(InstanceHandle handle,
     if (paths::IsExplorer()) {
         if (winrt::get_class_name(element) == L"Taskbar.TaskbarFrame") {
             surface::EnsureForCurrentThread();
+            monitor::OnTaskbarFrameAdded(element);
         }
         clickthrough::OnElementAdded(element,
                                      config->enabled && config->clickThrough);
+    }
+
+    if (paths::IsStartMenu() && state.themeSerial != config->serial) {
+        state.themeSerial = config->serial;
+        if (auto queue = DispatcherQueue::GetForCurrentThread()) {
+            queue.TryEnqueue(DispatcherQueuePriority::Low, [] {
+                try {
+                    ApplyRequestedTheme(*config::Current());
+                } catch (...) {
+                }
+            });
+        }
     }
 
     FlushPendingRemovals(state);

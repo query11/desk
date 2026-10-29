@@ -39,7 +39,7 @@
                         Margin="0,2,0,0"
                         FontSize="12"
                         Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                        Text="选「深色玻璃」可以得到白色文字、透出壁纸颜色的深色毛玻璃，不需要切换整个系统的深色模式。"
+                        Text="「深色玻璃」是白色文字、透出壁纸颜色的深色毛玻璃（参考图那样的效果），系统是浅色模式时也能用；「浅色玻璃」是黑色文字。"
                         TextWrapping="Wrap" />
                 </StackPanel>
             </ui:CardControl.Header>

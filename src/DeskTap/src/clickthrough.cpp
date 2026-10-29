@@ -21,6 +21,8 @@ struct TaskbarState {
     HWND islandHwnd = nullptr;
     winrt::weak_ref<wux::FrameworkElement> taskbarFrame;
     winrt::weak_ref<wux::FrameworkElement> systemTrayFrame;
+    // Desk's own island with the system figures, outside the frames.
+    winrt::weak_ref<wux::FrameworkElement> monitorIsland;
     wux::FrameworkElement::LayoutUpdated_revoker layoutRevoker;
     std::vector<long long> lastSignature;
 };
@@ -142,6 +144,7 @@ void Update(TaskbarState& state) {
         return;
     }
     auto trayRect = frameRect(state.systemTrayFrame.get());
+    auto monitorRect = frameRect(state.monitorIsland.get());
 
     std::vector<long long> signature;
     auto append = [&signature](const std::optional<wf::Rect>& rect) {
@@ -158,6 +161,7 @@ void Update(TaskbarState& state) {
     signature.push_back(Quantize(scale * 100));
     append(taskbarRect);
     append(trayRect);
+    append(monitorRect);
 
     RECT windowRect;
     if (!GetWindowRect(topLevel, &windowRect)) {
@@ -202,13 +206,16 @@ void Update(TaskbarState& state) {
     if (!region) {
         return;
     }
-    if (trayRect) {
-        RECT tray = toWindow(*trayRect);
-        if (HRGN trayRegion =
-                CreateRectRgn(tray.left, tray.top, tray.right, tray.bottom)) {
-            CombineRgn(region, region, trayRegion, RGN_OR);
-            DeleteObject(trayRegion);
-            UnionRect(&box, &box, &tray);
+    for (const auto& extra : {trayRect, monitorRect}) {
+        if (!extra) {
+            continue;
+        }
+        RECT rect = toWindow(*extra);
+        if (HRGN extraRegion =
+                CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom)) {
+            CombineRgn(region, region, extraRegion, RGN_OR);
+            DeleteObject(extraRegion);
+            UnionRect(&box, &box, &rect);
         }
     }
 
@@ -324,7 +331,9 @@ void OnElementAdded(wux::FrameworkElement const& element, bool enabled) {
     auto className = winrt::get_class_name(element);
     bool isTaskbarFrame = className == L"Taskbar.TaskbarFrame";
     bool isTrayFrame = className == L"SystemTray.SystemTrayFrame";
-    if (!isTaskbarFrame && !isTrayFrame) {
+    bool isMonitorIsland = !isTaskbarFrame && !isTrayFrame &&
+                           element.Name() == L"DeskMonitorIsland";
+    if (!isTaskbarFrame && !isTrayFrame && !isMonitorIsland) {
         return;
     }
 
@@ -342,8 +351,10 @@ void OnElementAdded(wux::FrameworkElement const& element, bool enabled) {
 
     if (isTaskbarFrame) {
         state->taskbarFrame = winrt::make_weak(element);
-    } else {
+    } else if (isTrayFrame) {
         state->systemTrayFrame = winrt::make_weak(element);
+    } else {
+        state->monitorIsland = winrt::make_weak(element);
     }
 
     // The taskbar frame's layout passes cover tray changes too.

@@ -336,23 +336,66 @@ internal sealed partial class DeskApp : ApplicationContext
         var taskbarRules = enabled
             ? _theme!.Compile(ThemeTarget.Taskbar, _lightMode, merge, _settings.Overrides)
             : [];
-        _runtime.Write(RuntimeWriter.ExplorerFile, enabled, enabled && _settings.ClickThrough, taskbarRules);
+        var monitor = MonitorFor(enabled, merge);
+        if (monitor.Enabled)
+        {
+            // The widgets button (weather, news) sits where the island goes.
+            taskbarRules.Add(new RuleSpec(
+                "Taskbar.AugmentedEntryPointButton#AugmentedEntryPointButton", ["Visibility=Collapsed"]));
+        }
+        _runtime.Write(RuntimeWriter.ExplorerFile, enabled, enabled && _settings.ClickThrough, taskbarRules,
+            monitor);
 
         bool startMenu = enabled && _settings.StyleStartMenu;
         var startRules = startMenu
             ? _theme!.Compile(ThemeTarget.StartMenu, StartMenuLight, false, _settings.Overrides)
             : [];
+        string? requestedTheme = null;
         if (startMenu && _settings.StartMenuScheme != StartMenuScheme.System)
         {
-            // Every Grid gets the requested theme, so that the text and the
-            // controls switch too (the Windows mode isn't changed).
-            startRules.Insert(0, new RuleSpec("Grid",
-                [$"RequestedTheme={(StartMenuLight ? "Light" : "Dark")}"]));
+            // The engine sets the theme on the window content, and every Grid
+            // gets it too for parts that set their own; so text and controls
+            // switch along with the glass. The Windows mode isn't changed.
+            requestedTheme = StartMenuLight ? "Light" : "Dark";
+            startRules.Insert(0, new RuleSpec("Grid", [$"RequestedTheme={requestedTheme}"]));
         }
-        _runtime.Write(RuntimeWriter.StartMenuFile, startMenu, false, startRules);
+        _runtime.Write(RuntimeWriter.StartMenuFile, startMenu, false, startRules, requestedTheme: requestedTheme);
 
         _autoHide.SetForced(enabled && maximized && _settings.MaximizeMode == MaximizeMode.AutoHide);
         UpdateTray();
+    }
+
+    /// <summary>The system figures island: the user's choices and the theme's colors.</summary>
+    private MonitorConfig MonitorFor(bool enabled, bool merge)
+    {
+        bool show = enabled && _settings.ShowMonitor &&
+                    (_settings.MonitorNetwork || _settings.MonitorCpu || _settings.MonitorMemory);
+        // On the native full-width bar the island would cover the Start button
+        // of a left-aligned taskbar.
+        if (merge && !TaskbarCentered())
+        {
+            show = false;
+        }
+
+        string Color(string name, string light, string dark) =>
+            _theme?.GetConstant(name, _lightMode, _settings.Overrides) ?? (_lightMode ? light : dark);
+
+        return new MonitorConfig(
+            show,
+            _settings.MonitorNetwork,
+            _settings.MonitorCpu,
+            _settings.MonitorMemory,
+            "CPU",
+            "内存",
+            Color("monitorText", "#E4000000", "#FFFFFFFF"),
+            Color("monitorSecondaryText", "#8A000000", "#B3FFFFFF"),
+            Color("monitorWarning", "#FFC42B1C", "#FFFF99A4"));
+    }
+
+    private static bool TaskbarCentered()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced");
+        return key?.GetValue("TaskbarAl") is not int value || value != 0;
     }
 
     /// <summary>

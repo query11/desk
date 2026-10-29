@@ -13,6 +13,10 @@ internal sealed class ParameterCard : CardControl
 
     public ParameterCard(ParameterInfo info)
     {
+        // Implicit styles only apply to the exact type, so a subclass has to
+        // ask for the card style explicitly; without it there is no template
+        // and only the slider shows.
+        SetResourceReference(StyleProperty, typeof(CardControl));
         Info = info;
         Margin = new Thickness(0, 0, 0, 4);
         Icon = new SymbolIcon { Symbol = info.Icon };

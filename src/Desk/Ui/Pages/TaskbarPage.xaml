@@ -25,7 +25,7 @@
                     Margin="0,2,0,0"
                     FontSize="12"
                     Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                    Text="拖动滑块会立即应用到任务栏。"
+                    Text="每一项下面都有说明。拖动滑块，任务栏会立即跟着变化；不满意随时点「恢复默认」。"
                     TextWrapping="Wrap" />
             </StackPanel>
             <ui:Button
@@ -48,6 +48,53 @@
             Message="自定义主题可以在主题文件里直接修改；内置主题都可以在这里调整。"
             Severity="Informational" />
         <StackPanel x:Name="ParametersPanel" />
+
+        <TextBlock
+            Margin="0,28,0,8"
+            FontSize="14"
+            FontWeight="SemiBold"
+            Text="左侧信息岛" />
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="DataUsage24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="显示网速和资源占用" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="在任务栏最左边放一个和其他浮岛同样质感的小岛，每秒刷新上传/下载速度和 CPU、内存占用，占用超过 85% 时数字变红。打开后系统的小组件（天气）按钮会隐藏，按 Win + W 仍可打开小组件。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch x:Name="MonitorSwitch" />
+        </ui:CardControl>
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="TextBulletList24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <TextBlock VerticalAlignment="Center" Text="显示的内容" />
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <CheckBox
+                    x:Name="MonitorNetworkBox"
+                    MinWidth="0"
+                    Margin="0,0,20,0"
+                    Content="网速" />
+                <CheckBox
+                    x:Name="MonitorCpuBox"
+                    MinWidth="0"
+                    Margin="0,0,20,0"
+                    Content="CPU" />
+                <CheckBox
+                    x:Name="MonitorMemoryBox"
+                    MinWidth="0"
+                    Content="内存" />
+            </StackPanel>
+        </ui:CardControl>
 
         <TextBlock
             Margin="0,28,0,8"

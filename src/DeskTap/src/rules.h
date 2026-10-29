@@ -30,11 +30,29 @@ struct Rule {
     std::vector<StyleSpec> styles;
 };
 
+// The island with live network, CPU and memory figures that Desk adds to the
+// left of the taskbar. Its look comes from the rules (`Border#DeskMonitorIsland`).
+struct MonitorConfig {
+    bool enabled = false;
+    bool network = true;
+    bool cpu = true;
+    bool memory = true;
+    std::wstring cpuLabel = L"CPU";
+    std::wstring memoryLabel = L"RAM";
+    winrt::Windows::UI::Color text{0xFF, 0xFF, 0xFF, 0xFF};
+    winrt::Windows::UI::Color secondaryText{0xB3, 0xFF, 0xFF, 0xFF};
+    winrt::Windows::UI::Color warning{0xFF, 0xFF, 0x99, 0xA4};
+};
+
 struct Config {
     uint64_t serial = 0;
     bool enabled = false;
     bool clickThrough = false;
     std::vector<Rule> rules;
+    MonitorConfig monitor;
+    // Light or dark for the whole window content, whatever the Windows mode
+    // (the Start menu's color scheme). Unset leaves the system's choice.
+    std::optional<wux::ElementTheme> requestedTheme;
 };
 
 // Parses `{"target": "...", "styles": ["..."]}` entries. Invalid entries are

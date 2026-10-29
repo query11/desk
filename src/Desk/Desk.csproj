@@ -12,7 +12,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>Desk</RootNamespace>
     <AssemblyName>Desk</AssemblyName>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Product>Desk</Product>
     <Description>Desk - Windows 11 desktop styling</Description>
     <Copyright>Copyright (C) 2026 Desk contributors. GPL-3.0-or-later.</Copyright>

@@ -91,6 +91,30 @@ internal sealed partial class DeskApp
         set => ChangeSetting(() => _settings.ClickThrough = value);
     }
 
+    public bool ShowMonitor
+    {
+        get => _settings.ShowMonitor;
+        set => ChangeSetting(() => _settings.ShowMonitor = value);
+    }
+
+    public bool MonitorNetwork
+    {
+        get => _settings.MonitorNetwork;
+        set => ChangeSetting(() => _settings.MonitorNetwork = value);
+    }
+
+    public bool MonitorCpu
+    {
+        get => _settings.MonitorCpu;
+        set => ChangeSetting(() => _settings.MonitorCpu = value);
+    }
+
+    public bool MonitorMemory
+    {
+        get => _settings.MonitorMemory;
+        set => ChangeSetting(() => _settings.MonitorMemory = value);
+    }
+
     public bool AutostartEnabled => Autostart.IsEnabled;
 
     /// <summary>Turns autostart on or off in the background (it starts schtasks.exe).</summary>

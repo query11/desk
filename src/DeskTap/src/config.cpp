@@ -66,6 +66,56 @@ std::optional<std::wstring> ReadUtf8File(const std::wstring& path) {
     return text;
 }
 
+std::optional<winrt::Windows::UI::Color> ParseHexColor(std::wstring_view text) {
+    if (text.empty() || text.front() != L'#') {
+        return std::nullopt;
+    }
+    text.remove_prefix(1);
+    if (text.size() != 6 && text.size() != 8) {
+        return std::nullopt;
+    }
+    uint32_t value = 0;
+    for (wchar_t c : text) {
+        value <<= 4;
+        if (c >= L'0' && c <= L'9') {
+            value |= c - L'0';
+        } else if (c >= L'a' && c <= L'f') {
+            value |= c - L'a' + 10;
+        } else if (c >= L'A' && c <= L'F') {
+            value |= c - L'A' + 10;
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (text.size() == 6) {
+        value |= 0xFF000000;
+    }
+    return winrt::Windows::UI::Color{static_cast<uint8_t>(value >> 24),
+                                     static_cast<uint8_t>(value >> 16),
+                                     static_cast<uint8_t>(value >> 8),
+                                     static_cast<uint8_t>(value)};
+}
+
+MonitorConfig ParseMonitor(JsonObject const& object) {
+    MonitorConfig monitor;
+    monitor.enabled = object.GetNamedBoolean(L"enabled", false);
+    monitor.network = object.GetNamedBoolean(L"network", true);
+    monitor.cpu = object.GetNamedBoolean(L"cpu", true);
+    monitor.memory = object.GetNamedBoolean(L"memory", true);
+    monitor.cpuLabel = std::wstring(object.GetNamedString(L"cpuLabel", L"CPU"));
+    monitor.memoryLabel =
+        std::wstring(object.GetNamedString(L"memoryLabel", L"RAM"));
+    auto color = [&object](const wchar_t* name, winrt::Windows::UI::Color& out) {
+        if (auto parsed = ParseHexColor(object.GetNamedString(name, L""))) {
+            out = *parsed;
+        }
+    };
+    color(L"text", monitor.text);
+    color(L"secondaryText", monitor.secondaryText);
+    color(L"warning", monitor.warning);
+    return monitor;
+}
+
 std::shared_ptr<Config> Parse(const std::wstring& text) {
     JsonObject root{nullptr};
     if (!JsonObject::TryParse(text, root) || !root) {
@@ -82,6 +132,18 @@ std::shared_ptr<Config> Parse(const std::wstring& text) {
     if (root.HasKey(L"rules") &&
         root.GetNamedValue(L"rules").ValueType() == JsonValueType::Array) {
         config->rules = ParseRules(root.GetNamedArray(L"rules"));
+    }
+
+    if (root.HasKey(L"monitor") &&
+        root.GetNamedValue(L"monitor").ValueType() == JsonValueType::Object) {
+        config->monitor = ParseMonitor(root.GetNamedObject(L"monitor"));
+    }
+
+    auto theme = root.GetNamedString(L"requestedTheme", L"");
+    if (theme == L"Dark") {
+        config->requestedTheme = wux::ElementTheme::Dark;
+    } else if (theme == L"Light") {
+        config->requestedTheme = wux::ElementTheme::Light;
     }
 
     return config;

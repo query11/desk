@@ -3,6 +3,18 @@ using System.Text.Json.Nodes;
 
 namespace Desk;
 
+/// <summary>The island with live system figures on the left of the taskbar.</summary>
+internal sealed record MonitorConfig(
+    bool Enabled,
+    bool Network,
+    bool Cpu,
+    bool Memory,
+    string CpuLabel,
+    string MemoryLabel,
+    string TextColor,
+    string SecondaryTextColor,
+    string WarningColor);
+
 /// <summary>
 /// Writes runtime\&lt;process&gt;.json, which DeskTap.dll watches. Files are
 /// replaced atomically and only rewritten when their content changes.
@@ -15,7 +27,9 @@ internal sealed class RuntimeWriter
     private readonly Dictionary<string, string> _lastContent = new(StringComparer.OrdinalIgnoreCase);
     private long _lastSerial;
 
-    public void Write(string process, bool enabled, bool clickThrough, IReadOnlyList<RuleSpec> rules)
+    /// <param name="requestedTheme">"Light" or "Dark" to force the theme of the window content.</param>
+    public void Write(string process, bool enabled, bool clickThrough, IReadOnlyList<RuleSpec> rules,
+        MonitorConfig? monitor = null, string? requestedTheme = null)
     {
         var rulesArray = new JsonArray();
         foreach (var rule in rules)
@@ -35,6 +49,25 @@ internal sealed class RuntimeWriter
             ["clickThrough"] = clickThrough,
             ["rules"] = rulesArray,
         };
+        if (monitor != null)
+        {
+            payload["monitor"] = new JsonObject
+            {
+                ["enabled"] = monitor.Enabled,
+                ["network"] = monitor.Network,
+                ["cpu"] = monitor.Cpu,
+                ["memory"] = monitor.Memory,
+                ["cpuLabel"] = monitor.CpuLabel,
+                ["memoryLabel"] = monitor.MemoryLabel,
+                ["text"] = monitor.TextColor,
+                ["secondaryText"] = monitor.SecondaryTextColor,
+                ["warning"] = monitor.WarningColor,
+            };
+        }
+        if (requestedTheme != null)
+        {
+            payload["requestedTheme"] = requestedTheme;
+        }
 
         string content = payload.ToJsonString();
         if (_lastContent.TryGetValue(process, out var last) && last == content)
