@@ -37,9 +37,10 @@ jobs:
         if: hashFiles('src/Desk/Desk.csproj') != ''
         shell: pwsh
         run: |
+          # Not compressed and with WPF's native DLLs next to Desk.exe: nothing
+          # has to be unpacked when Desk starts at sign-in.
           dotnet publish src/Desk/Desk.csproj -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:EnableCompressionInSingleFile=true -o dist/Desk 2>&1 | Tee-Object -FilePath build/desk-build.log
+            -p:PublishSingleFile=true -o dist/Desk 2>&1 | Tee-Object -FilePath build/desk-build.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Package

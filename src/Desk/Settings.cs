@@ -15,6 +15,19 @@ internal enum MaximizeMode
     Keep,
 }
 
+/// <summary>Which colors the Start menu uses.</summary>
+internal enum StartMenuScheme
+{
+    /// <summary>Follow the Windows mode (light or dark).</summary>
+    System,
+
+    /// <summary>Dark glass with white text, whatever the Windows mode.</summary>
+    Dark,
+
+    /// <summary>Light glass with black text, whatever the Windows mode.</summary>
+    Light,
+}
+
 internal sealed class Settings
 {
     public bool Enabled { get; set; } = true;
@@ -26,9 +39,27 @@ internal sealed class Settings
 
     public bool StyleStartMenu { get; set; } = true;
 
+    /// <summary>Dark by default: translucent dark glass with white text, whichever Windows mode is on.</summary>
+    public StartMenuScheme StartMenuScheme { get; set; } = StartMenuScheme.Dark;
+
     public bool ClickThrough { get; set; }
 
+    /// <summary>
+    /// Theme constants changed in the settings window, by name. A name ending
+    /// in @light or @dark only applies in that Windows mode.
+    /// </summary>
+    public Dictionary<string, string> Overrides { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>Whether autostart was set up once; after that it's the user's choice.</summary>
+    public bool AutostartConfigured { get; set; }
+
+    /// <summary>The Desk.exe autostart was set up for, to notice when it moved.</summary>
+    public string? AutostartPath { get; set; }
+
     public bool WelcomeShown { get; set; }
+
+    /// <summary>Whether the tip about closing the window was shown.</summary>
+    public bool CloseTipShown { get; set; }
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -42,8 +73,10 @@ internal sealed class Settings
         {
             if (File.Exists(Paths.SettingsFile))
             {
-                return JsonSerializer.Deserialize<Settings>(File.ReadAllText(Paths.SettingsFile), Options)
-                       ?? new Settings();
+                var settings = JsonSerializer.Deserialize<Settings>(File.ReadAllText(Paths.SettingsFile), Options)
+                               ?? new Settings();
+                settings.Overrides = new Dictionary<string, string>(settings.Overrides ?? [], StringComparer.Ordinal);
+                return settings;
             }
         }
         catch (Exception e)
@@ -58,7 +91,9 @@ internal sealed class Settings
         try
         {
             Directory.CreateDirectory(Paths.SettingsDir);
-            File.WriteAllText(Paths.SettingsFile, JsonSerializer.Serialize(this, Options));
+            string temp = Paths.SettingsFile + ".tmp";
+            File.WriteAllText(temp, JsonSerializer.Serialize(this, Options));
+            File.Move(temp, Paths.SettingsFile, overwrite: true);
         }
         catch (Exception e)
         {

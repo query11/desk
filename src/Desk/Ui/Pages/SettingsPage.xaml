@@ -1,0 +1,149 @@
+<Page
+    x:Class="Desk.Ui.Pages.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="设置">
+    <StackPanel Margin="40,8,40,40">
+        <TextBlock
+            Margin="0,0,0,20"
+            FontSize="28"
+            FontWeight="SemiBold"
+            Text="设置" />
+
+        <TextBlock
+            Margin="0,0,0,8"
+            FontSize="14"
+            FontWeight="SemiBold"
+            Text="启动" />
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Rocket24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="开机自动启动" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="登录 Windows 后立即在后台启动（不显示窗口），比普通的开机启动项更早生效。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch x:Name="AutostartSwitch" />
+        </ui:CardControl>
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Keyboard24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="快捷键" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="随时停用或恢复美化，遇到问题时最快的办法。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <TextBlock
+                VerticalAlignment="Center"
+                FontWeight="SemiBold"
+                Text="Ctrl + Alt + Shift + D" />
+        </ui:CardControl>
+
+        <TextBlock
+            Margin="0,28,0,8"
+            FontSize="14"
+            FontWeight="SemiBold"
+            Text="文件" />
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="FolderOpen24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="主题文件夹" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="放在这里的主题会出现在主题列表里，保存后立即生效。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:Button
+                x:Name="ThemesFolderButton"
+                MinWidth="120"
+                Content="打开" />
+        </ui:CardControl>
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="DocumentText24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="日志" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="反馈问题时请附上这个文件夹里的日志。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:Button
+                x:Name="LogsFolderButton"
+                MinWidth="120"
+                Content="打开" />
+        </ui:CardControl>
+
+        <TextBlock
+            Margin="0,28,0,8"
+            FontSize="14"
+            FontWeight="SemiBold"
+            Text="关于" />
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Info24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock x:Name="VersionText" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="以 GPL-3.0 发布。样式引擎参考了 TranslucentTB 和 Windhawk 的 Windows 11 Taskbar Styler，界面使用 WPF UI。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:Button
+                x:Name="ProjectButton"
+                MinWidth="120"
+                Content="项目主页" />
+        </ui:CardControl>
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Power24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="退出 Desk" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="任务栏和开始菜单会恢复成系统原样。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:Button
+                x:Name="ExitButton"
+                MinWidth="120"
+                Content="退出并还原" />
+        </ui:CardControl>
+    </StackPanel>
+</Page>

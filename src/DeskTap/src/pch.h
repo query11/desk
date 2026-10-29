@@ -31,6 +31,7 @@
 #include <winrt/Windows.Foundation.Numerics.h>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Graphics.Effects.h>
+#include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.System.Power.h>
 #include <winrt/Windows.UI.h>
@@ -53,10 +54,12 @@
 #include <cwctype>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <string>
 #include <string_view>
 #include <thread>

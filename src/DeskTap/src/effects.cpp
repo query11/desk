@@ -311,4 +311,76 @@ HRESULT ColorMatrixEffect::GetSourceCount(UINT* count) noexcept {
     return S_OK;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// BorderEffect
+
+HRESULT BorderEffect::GetEffectId(GUID* id) noexcept {
+    if (!id) {
+        return E_INVALIDARG;
+    }
+    *id = CLSID_D2D1Border;
+    return S_OK;
+}
+
+HRESULT BorderEffect::GetNamedPropertyMapping(
+    LPCWSTR name,
+    UINT* index,
+    awge::GRAPHICS_EFFECT_PROPERTY_MAPPING* mapping) noexcept {
+    if (!name || !index || !mapping) {
+        return E_INVALIDARG;
+    }
+    std::wstring_view view(name);
+    if (view == L"ExtendX") {
+        return Direct(D2D1_BORDER_PROP_EDGE_MODE_X, index, mapping);
+    }
+    if (view == L"ExtendY") {
+        return Direct(D2D1_BORDER_PROP_EDGE_MODE_Y, index, mapping);
+    }
+    return E_INVALIDARG;
+}
+
+HRESULT BorderEffect::GetPropertyCount(UINT* count) noexcept {
+    if (!count) {
+        return E_INVALIDARG;
+    }
+    *count = 2;
+    return S_OK;
+}
+
+HRESULT BorderEffect::GetProperty(UINT index,
+                                  AbiPropertyValue** value) noexcept try {
+    if (!value) {
+        return E_INVALIDARG;
+    }
+    switch (index) {
+        case D2D1_BORDER_PROP_EDGE_MODE_X:
+            return Box(wf::PropertyValue::CreateUInt32(
+                           static_cast<uint32_t>(ExtendX)),
+                       value);
+        case D2D1_BORDER_PROP_EDGE_MODE_Y:
+            return Box(wf::PropertyValue::CreateUInt32(
+                           static_cast<uint32_t>(ExtendY)),
+                       value);
+    }
+    return E_BOUNDS;
+} catch (...) {
+    return winrt::to_hresult();
+}
+
+HRESULT BorderEffect::GetSource(UINT index,
+                                awge::IGraphicsEffectSource** source) noexcept {
+    if (!source) {
+        return E_INVALIDARG;
+    }
+    return index == 0 ? CopySource(Source, source) : E_BOUNDS;
+}
+
+HRESULT BorderEffect::GetSourceCount(UINT* count) noexcept {
+    if (!count) {
+        return E_INVALIDARG;
+    }
+    *count = 1;
+    return S_OK;
+}
+
 }  // namespace desk::effects

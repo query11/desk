@@ -4,30 +4,52 @@
 //   target:  "父元素 > 子元素"，元素写成 类型#名称，可以用 [序号] 和 [属性=值]
 //   styles:  "属性=值"，或者 "属性:=<XAML 对象/>"
 // $名称 引用下面的常量；常量可以分别给浅色模式和深色模式设置不同的值。
+// Desk 设置窗口里的滑块调整的就是这些常量（调整后的值保存在设置里，不会改动这个文件）。
 // 保存这个文件后，Desk 会立即重新应用。
 {
   "name": "Desk 浮岛",
-  "description": "居中的应用岛和右侧的托盘岛，背景实时模糊；开始菜单为毛玻璃。窗口最大化时恢复成整条任务栏。",
+  "description": "居中的应用岛和右侧的托盘岛，亚克力质感的实时模糊；开始菜单为通透的毛玻璃。窗口最大化时恢复成整条任务栏。",
 
   "constants": {
-    // 圆角和岛与任务栏边缘的上下间距（单位：像素，按 100% 缩放计）
-    "radius": "8",
+    // ---- 任务栏浮岛 ----
+    // 圆角，以及岛与任务栏上下边缘的距离（单位：像素，按 100% 缩放计）
+    "radius": "10",
     "gap": "4",
 
-    // 模糊强度（高斯模糊的标准差）和饱和度
-    "islandBlur": "24",
-    "menuBlur": "30",
-    "saturation": "1.25",
+    // 材质：
+    //   Blur        模糊强度（高斯模糊的标准差）
+    //   Tint        着色颜色，Opacity 是着色浓度（0~1，越大越接近纯色）
+    //   Luminosity  明暗统一（0~1）：把背景的亮度拉向着色的亮度，越大文字越清晰、越不受壁纸影响
+    //   Saturation  饱和度（1 为原样，越大壁纸的颜色越鲜艳）
+    //   Noise       颗粒感（0~0.1），让模糊更像真实的亚克力材质
+    "islandBlur": "30",
+    "islandTint": { "light": "#F3F3F3", "dark": "#202020" },
+    "islandOpacity": { "light": "0.5", "dark": "0.45" },
+    "islandLuminosity": { "light": "0.8", "dark": "0.7" },
+    "islandSaturation": "1.4",
+    "islandNoise": "0.025",
 
-    // 着色：#AARRGGBB，AA 是不透明度（B3≈70%，A6≈65%，8C≈55%，80≈50%）
-    "islandTint": { "light": "#B3F3F3F3", "dark": "#A6202020" },
-    "menuTint": { "light": "#8CF3F3F3", "dark": "#80202020" },
+    // 岛的描边：顶部的高光和底部的暗边，让岛看起来像一块玻璃
+    "islandStroke": {
+      "light": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#B3FFFFFF\" Offset=\"0\"/><GradientStop Color=\"#33FFFFFF\" Offset=\"0.5\"/><GradientStop Color=\"#1F000000\" Offset=\"1\"/></LinearGradientBrush>",
+      "dark": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#40FFFFFF\" Offset=\"0\"/><GradientStop Color=\"#14FFFFFF\" Offset=\"0.5\"/><GradientStop Color=\"#0AFFFFFF\" Offset=\"1\"/></LinearGradientBrush>"
+    },
 
-    // 1 像素描边：浅色模式偏暗，深色模式偏亮
-    "stroke": { "light": "#14000000", "dark": "#1FFFFFFF" },
+    // ---- 开始菜单 ----
+    "menuRadius": "8",
+    "menuBlur": "28",
+    "menuTint": { "light": "#F3F3F3", "dark": "#1C1C1C" },
+    "menuOpacity": { "light": "0.2", "dark": "0.25" },
+    "menuLuminosity": { "light": "0.6", "dark": "0.5" },
+    "menuSaturation": "1.5",
+    "menuNoise": "0.025",
+    "menuStroke": {
+      "light": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#99FFFFFF\" Offset=\"0\"/><GradientStop Color=\"#33FFFFFF\" Offset=\"0.3\"/><GradientStop Color=\"#1A000000\" Offset=\"1\"/></LinearGradientBrush>",
+      "dark": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#4DFFFFFF\" Offset=\"0\"/><GradientStop Color=\"#1AFFFFFF\" Offset=\"0.3\"/><GradientStop Color=\"#0DFFFFFF\" Offset=\"1\"/></LinearGradientBrush>"
+    },
 
-    "islandMaterial": "<DeskBlur BlurAmount=\"$islandBlur\" TintColor=\"$islandTint\" TintSaturation=\"$saturation\"/>",
-    "menuMaterial": "<DeskBlur BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintSaturation=\"$saturation\"/>"
+    "islandMaterial": "<DeskBlur BlurAmount=\"$islandBlur\" TintColor=\"$islandTint\" TintOpacity=\"$islandOpacity\" TintLuminosityOpacity=\"$islandLuminosity\" TintSaturation=\"$islandSaturation\" NoiseOpacity=\"$islandNoise\"/>",
+    "menuMaterial": "<DeskBlur BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintOpacity=\"$menuOpacity\" TintLuminosityOpacity=\"$menuLuminosity\" TintSaturation=\"$menuSaturation\" NoiseOpacity=\"$menuNoise\"/>"
   },
 
   "taskbar": {
@@ -44,17 +66,17 @@
       // 图标离岛的左右边缘留一点距离
       {
         "target": "Taskbar.TaskbarFrame > Grid#RootGrid",
-        "styles": ["Padding=6,0,6,0"]
+        "styles": ["Padding=8,0,8,0"]
       },
       // 背景层向左右延伸回岛的边缘，上下各收进 $gap，形成“浮起来”的岛
       {
         "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground",
-        "styles": ["Margin=-6,$gap,-6,$gap"]
+        "styles": ["Margin=-8,$gap,-8,$gap"]
       },
-      // 岛的材质：实时模糊 + 着色 + 圆角 + 描边
+      // 岛的材质：亚克力模糊 + 圆角 + 玻璃描边
       {
         "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundFill",
-        "styles": ["Fill:=$islandMaterial", "RadiusX=$radius", "RadiusY=$radius", "Stroke=$stroke", "StrokeThickness=1"]
+        "styles": ["Fill:=$islandMaterial", "RadiusX=$radius", "RadiusY=$radius", "Stroke:=$islandStroke", "StrokeThickness=1"]
       },
       // 去掉原生任务栏顶部的那条分隔线
       {
@@ -71,11 +93,11 @@
         "target": "SystemTray.SystemTrayFrame > Grid#SystemTrayFrameGrid, SystemTray.SystemTrayFrame > StackPanel#SystemTrayFrameGrid",
         "styles": [
           "Background:=$islandMaterial",
-          "BorderBrush=$stroke",
+          "BorderBrush:=$islandStroke",
           "BorderThickness=1",
           "CornerRadius=$radius",
-          "Margin=0,$gap,6,$gap",
-          "Padding=6,0,2,0"
+          "Margin=0,$gap,8,$gap",
+          "Padding=8,0,4,0"
         ]
       }
     ],
@@ -87,10 +109,10 @@
 
   "startMenu": {
     "common": [
-      // 开始菜单（以及手机连接侧栏）的背景：实时模糊 + 着色 + 描边
+      // 开始菜单（以及手机连接侧栏）的背景：通透的毛玻璃 + 玻璃描边
       {
         "target": "Border#AcrylicBorder",
-        "styles": ["Background:=$menuMaterial", "BorderBrush=$stroke", "BorderThickness=1", "CornerRadius=$radius"]
+        "styles": ["Background:=$menuMaterial", "BorderBrush:=$menuStroke", "BorderThickness=1", "CornerRadius=$menuRadius"]
       },
       // 系统叠加在亚克力上的一层，会让背景发灰发闷
       {
@@ -100,7 +122,7 @@
       // 阴影的圆角和背景保持一致
       {
         "target": "Border#StartDropShadow, Border#RootGridDropShadow, Border#RightCompanionDropShadow",
-        "styles": ["CornerRadius=$radius"]
+        "styles": ["CornerRadius=$menuRadius"]
       }
     ]
   }

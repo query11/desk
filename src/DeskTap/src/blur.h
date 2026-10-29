@@ -6,7 +6,12 @@ struct BlurParams {
     float blurAmount = 30.0f;
     winrt::Windows::UI::Color tint{0x80, 0x20, 0x20, 0x20};
     float saturation = 1.0f;
+    // Pulls the backdrop's brightness towards the tint's, like acrylic does.
     std::optional<float> luminosityOpacity;
+    // Grain on top of the blur, like acrylic's noise texture. Density shapes
+    // the brightness of the grains (lower means sparser bright grains).
+    float noiseOpacity = 0.0f;
+    float noiseDensity = 1.0f;
     // Used instead of the blur when transparency effects are off or energy
     // saver is on. Defaults to the tint made mostly opaque.
     std::optional<winrt::Windows::UI::Color> fallback;

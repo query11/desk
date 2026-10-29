@@ -31,6 +31,7 @@ internal sealed class TargetManager
     private readonly Target _explorer = new();
     private readonly Target _startMenu = new();
     private readonly int _sessionId = Process.GetCurrentProcess().SessionId;
+    private bool _startMenuRestarted;
 
     /// <summary>Raised with the new process id when the taskbar's explorer changed.</summary>
     public event Action<uint>? ExplorerChanged;
@@ -44,6 +45,15 @@ internal sealed class TargetManager
     public bool ExplorerInjected => _explorer.State == State.Injected;
 
     public bool StartMenuInjected => _startMenu.State == State.Injected;
+
+    /// <summary>The Start menu host hasn't run the loader yet (it's suspended until opened).</summary>
+    public bool StartMenuPending => _startMenu.State == State.Pending;
+
+    /// <summary>
+    /// Explorer still runs the engine of an older Desk, which only goes away
+    /// when explorer restarts.
+    /// </summary>
+    public bool ExplorerOutdated { get; private set; }
 
     public void Reset()
     {
@@ -82,6 +92,7 @@ internal sealed class TargetManager
             _explorer.State = State.Unknown;
             _explorer.NextAttempt = DateTime.MinValue;
             _explorer.Failures = 0;
+            ExplorerOutdated = false;
             Log.Info($"Taskbar explorer is pid {processId}");
             if (hadExplorer)
             {
@@ -98,6 +109,11 @@ internal sealed class TargetManager
         {
             Log.Info($"DeskTap already loaded in explorer: {loaded}");
             _explorer.State = State.Injected;
+            ExplorerOutdated = !IsCurrent(loaded);
+            if (ExplorerOutdated)
+            {
+                Log.Warn("Explorer runs an older DeskTap; it is replaced when explorer restarts");
+            }
             return;
         }
 
@@ -152,6 +168,12 @@ internal sealed class TargetManager
         if (TapInjector.FindLoadedTap(processId) is { } loaded)
         {
             Log.Info($"DeskTap already loaded in the Start menu host: {loaded}");
+            if (!IsCurrent(loaded) && !_startMenuRestarted && RestartStartMenu(processId))
+            {
+                // Windows starts it again right away; the next tick loads
+                // the current engine into the new process.
+                return;
+            }
             _startMenu.State = State.Injected;
             return;
         }
@@ -183,6 +205,32 @@ internal sealed class TargetManager
             }
             _ui.Post(_ => Finish(_startMenu, processId, result, "Start menu host"), null);
         });
+    }
+
+    private bool IsCurrent(string loadedPath) =>
+        string.Equals(Path.GetFileName(loadedPath), Path.GetFileName(_injector.DllPath), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Ends the Start menu host so that it picks up a newer engine. It's
+    /// harmless: Windows restarts it, and it's closed most of the time.
+    /// </summary>
+    private bool RestartStartMenu(uint processId)
+    {
+        _startMenuRestarted = true;
+        try
+        {
+            using var process = Process.GetProcessById((int)processId);
+            Log.Info("Restarting the Start menu host to load the updated engine");
+            process.Kill();
+            _startMenu.ProcessId = 0;
+            _startMenu.State = State.Unknown;
+            return true;
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"Could not restart the Start menu host: {e.Message}");
+            return false;
+        }
     }
 
     private static bool ShouldAttempt(Target target) =>

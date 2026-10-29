@@ -215,6 +215,10 @@ std::optional<BlurParams> ParseBlur(std::wstring_view xaml) {
             params.saturation = ParseFloat(value).value_or(1.0f);
         } else if (name == L"TintLuminosityOpacity") {
             params.luminosityOpacity = ParseFloat(value);
+        } else if (name == L"NoiseOpacity") {
+            params.noiseOpacity = ParseFloat(value).value_or(0.0f);
+        } else if (name == L"NoiseDensity") {
+            params.noiseDensity = ParseFloat(value).value_or(1.0f);
         } else if (name == L"FallbackColor") {
             params.fallback = ParseColor(value);
         }

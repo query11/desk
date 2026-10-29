@@ -1,18 +1,31 @@
-// Desk 整条毛玻璃：保留原生的整条任务栏布局，只把背景换成实时模糊。
+// Desk 整条毛玻璃：保留原生的整条任务栏布局，只把背景换成亚克力质感的实时模糊。
 {
   "name": "Desk 整条毛玻璃",
-  "description": "原生布局的整条任务栏，背景换成实时模糊；开始菜单为毛玻璃。",
+  "description": "原生布局的整条任务栏，背景换成实时模糊；开始菜单为通透的毛玻璃。",
 
   "constants": {
-    "radius": "8",
-    "barBlur": "24",
-    "menuBlur": "30",
-    "saturation": "1.25",
-    "barTint": { "light": "#B3F3F3F3", "dark": "#A6202020" },
-    "menuTint": { "light": "#8CF3F3F3", "dark": "#80202020" },
-    "stroke": { "light": "#14000000", "dark": "#1FFFFFFF" },
-    "barMaterial": "<DeskBlur BlurAmount=\"$barBlur\" TintColor=\"$barTint\" TintSaturation=\"$saturation\"/>",
-    "menuMaterial": "<DeskBlur BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintSaturation=\"$saturation\"/>"
+    "islandBlur": "30",
+    "islandTint": { "light": "#F3F3F3", "dark": "#202020" },
+    "islandOpacity": { "light": "0.5", "dark": "0.45" },
+    "islandLuminosity": { "light": "0.8", "dark": "0.7" },
+    "islandSaturation": "1.4",
+    "islandNoise": "0.025",
+    "barStroke": { "light": "#40FFFFFF", "dark": "#1AFFFFFF" },
+
+    "menuRadius": "8",
+    "menuBlur": "28",
+    "menuTint": { "light": "#F3F3F3", "dark": "#1C1C1C" },
+    "menuOpacity": { "light": "0.2", "dark": "0.25" },
+    "menuLuminosity": { "light": "0.6", "dark": "0.5" },
+    "menuSaturation": "1.5",
+    "menuNoise": "0.025",
+    "menuStroke": {
+      "light": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#99FFFFFF\" Offset=\"0\"/><GradientStop Color=\"#33FFFFFF\" Offset=\"0.3\"/><GradientStop Color=\"#1A000000\" Offset=\"1\"/></LinearGradientBrush>",
+      "dark": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#4DFFFFFF\" Offset=\"0\"/><GradientStop Color=\"#1AFFFFFF\" Offset=\"0.3\"/><GradientStop Color=\"#0DFFFFFF\" Offset=\"1\"/></LinearGradientBrush>"
+    },
+
+    "barMaterial": "<DeskBlur BlurAmount=\"$islandBlur\" TintColor=\"$islandTint\" TintOpacity=\"$islandOpacity\" TintLuminosityOpacity=\"$islandLuminosity\" TintSaturation=\"$islandSaturation\" NoiseOpacity=\"$islandNoise\"/>",
+    "menuMaterial": "<DeskBlur BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintOpacity=\"$menuOpacity\" TintLuminosityOpacity=\"$menuLuminosity\" TintSaturation=\"$menuSaturation\" NoiseOpacity=\"$menuNoise\"/>"
   },
 
   "taskbar": {
@@ -21,9 +34,10 @@
         "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundFill",
         "styles": ["Fill:=$barMaterial"]
       },
+      // 顶部的分隔线改成一道淡淡的高光
       {
         "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundStroke",
-        "styles": ["Fill=$stroke"]
+        "styles": ["Fill=$barStroke"]
       }
     ],
     "floating": [],
@@ -34,11 +48,15 @@
     "common": [
       {
         "target": "Border#AcrylicBorder",
-        "styles": ["Background:=$menuMaterial", "BorderBrush=$stroke", "BorderThickness=1", "CornerRadius=$radius"]
+        "styles": ["Background:=$menuMaterial", "BorderBrush:=$menuStroke", "BorderThickness=1", "CornerRadius=$menuRadius"]
       },
       {
         "target": "Border#AcrylicOverlay",
         "styles": ["Visibility=Collapsed"]
+      },
+      {
+        "target": "Border#StartDropShadow, Border#RootGridDropShadow, Border#RightCompanionDropShadow",
+        "styles": ["CornerRadius=$menuRadius"]
       }
     ]
   }

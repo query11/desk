@@ -1,3 +1,4 @@
+using System.Windows.Forms;
 using static Desk.NativeMethods;
 
 namespace Desk;

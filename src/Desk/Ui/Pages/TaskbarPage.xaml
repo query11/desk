@@ -1,0 +1,103 @@
+<Page
+    x:Class="Desk.Ui.Pages.TaskbarPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="任务栏">
+    <StackPanel Margin="40,8,40,40">
+        <TextBlock
+            Margin="0,0,0,20"
+            FontSize="28"
+            FontWeight="SemiBold"
+            Text="任务栏" />
+
+        <Grid Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock
+                    FontSize="14"
+                    FontWeight="SemiBold"
+                    Text="浮岛外观" />
+                <TextBlock
+                    Margin="0,2,0,0"
+                    FontSize="12"
+                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                    Text="拖动滑块会立即应用到任务栏。"
+                    TextWrapping="Wrap" />
+            </StackPanel>
+            <ui:Button
+                x:Name="ResetButton"
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                Content="恢复默认">
+                <ui:Button.Icon>
+                    <ui:SymbolIcon Symbol="ArrowReset24" />
+                </ui:Button.Icon>
+            </ui:Button>
+        </Grid>
+
+        <ui:InfoBar
+            x:Name="EmptyHint"
+            Title="当前主题没有可以调整的参数"
+            Margin="0,0,0,8"
+            IsClosable="False"
+            IsOpen="True"
+            Message="自定义主题可以在主题文件里直接修改；内置主题都可以在这里调整。"
+            Severity="Informational" />
+        <StackPanel x:Name="ParametersPanel" />
+
+        <TextBlock
+            Margin="0,28,0,8"
+            FontSize="14"
+            FontWeight="SemiBold"
+            Text="行为" />
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Maximize24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="窗口最大化时" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="有窗口铺满屏幕时，任务栏怎么显示。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ComboBox x:Name="MaximizeBox" MinWidth="200">
+                <ComboBoxItem Content="恢复成整条任务栏" />
+                <ComboBoxItem Content="自动隐藏任务栏" />
+                <ComboBoxItem Content="保持浮岛" />
+            </ComboBox>
+        </ui:CardControl>
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="CursorClick24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="空白处点击穿透（实验）" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="点击浮岛之间的空白处时，点到后面的窗口或桌面。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch x:Name="ClickThroughSwitch" />
+        </ui:CardControl>
+
+        <TextBlock
+            Margin="2,16,0,0"
+            FontSize="12"
+            Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+            Text="这里调整的数值保存在 Desk 的设置里，不会改动主题文件。着色浓度和明暗统一在浅色、深色模式下分别保存。"
+            TextWrapping="Wrap" />
+    </StackPanel>
+</Page>

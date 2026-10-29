@@ -88,6 +88,20 @@ private:
     winrt::hstring m_name = L"ColorMatrixEffect";
 };
 
+// Extends its source beyond its bounds; used to tile the noise texture.
+struct BorderEffect : winrt::implements<BorderEffect, wge::IGraphicsEffect,
+                                        wge::IGraphicsEffectSource,
+                                        awge::IGraphicsEffectD2D1Interop> {
+    DESK_EFFECT_INTEROP_METHODS
+
+    wge::IGraphicsEffectSource Source{nullptr};
+    D2D1_BORDER_EDGE_MODE ExtendX = D2D1_BORDER_EDGE_MODE_WRAP;
+    D2D1_BORDER_EDGE_MODE ExtendY = D2D1_BORDER_EDGE_MODE_WRAP;
+
+private:
+    winrt::hstring m_name = L"BorderEffect";
+};
+
 #undef DESK_EFFECT_INTEROP_METHODS
 
 }  // namespace desk::effects

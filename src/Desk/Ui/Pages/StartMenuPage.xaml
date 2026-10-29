@@ -1,0 +1,98 @@
+<Page
+    x:Class="Desk.Ui.Pages.StartMenuPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="开始菜单">
+    <StackPanel Margin="40,8,40,40">
+        <TextBlock
+            Margin="0,0,0,20"
+            FontSize="28"
+            FontWeight="SemiBold"
+            Text="开始菜单" />
+
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Apps24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="美化开始菜单" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="把开始菜单的背景换成通透的毛玻璃。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch x:Name="StyleSwitch" />
+        </ui:CardControl>
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="DarkTheme24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="配色" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="选「深色玻璃」可以得到白色文字、透出壁纸颜色的深色毛玻璃，不需要切换整个系统的深色模式。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ComboBox x:Name="SchemeBox" MinWidth="200">
+                <ComboBoxItem Content="跟随 Windows 模式" />
+                <ComboBoxItem Content="深色玻璃" />
+                <ComboBoxItem Content="浅色玻璃" />
+            </ComboBox>
+        </ui:CardControl>
+
+        <Grid Margin="0,28,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock
+                    FontSize="14"
+                    FontWeight="SemiBold"
+                    Text="玻璃效果" />
+                <TextBlock
+                    x:Name="ModeText"
+                    Margin="0,2,0,0"
+                    FontSize="12"
+                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap" />
+            </StackPanel>
+            <ui:Button
+                x:Name="ResetButton"
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                Content="恢复默认">
+                <ui:Button.Icon>
+                    <ui:SymbolIcon Symbol="ArrowReset24" />
+                </ui:Button.Icon>
+            </ui:Button>
+        </Grid>
+
+        <ui:InfoBar
+            x:Name="EmptyHint"
+            Title="当前主题没有可以调整的参数"
+            Margin="0,0,0,8"
+            IsClosable="False"
+            IsOpen="True"
+            Message="自定义主题可以在主题文件里直接修改；内置主题都可以在这里调整。"
+            Severity="Informational" />
+        <StackPanel x:Name="ParametersPanel" />
+
+        <TextBlock
+            Margin="2,16,0,0"
+            FontSize="12"
+            Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+            Text="开始菜单关着的时候也会更新，下次打开就能看到新的效果。"
+            TextWrapping="Wrap" />
+    </StackPanel>
+</Page>

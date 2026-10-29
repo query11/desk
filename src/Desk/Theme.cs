@@ -81,9 +81,10 @@ internal sealed class Theme
         return theme;
     }
 
-    /// <summary>Peeks at a theme file's display name without fully loading it.</summary>
-    public static string ReadName(string path)
+    /// <summary>Peeks at a theme file's name and description without fully loading it.</summary>
+    public static (string Name, string Description) ReadInfo(string path)
     {
+        string fallback = System.IO.Path.GetFileNameWithoutExtension(path);
         try
         {
             using var document = JsonDocument.Parse(File.ReadAllText(path), new JsonDocumentOptions
@@ -91,31 +92,61 @@ internal sealed class Theme
                 CommentHandling = JsonCommentHandling.Skip,
                 AllowTrailingCommas = true,
             });
-            if (document.RootElement.TryGetProperty("name", out var name) &&
-                name.ValueKind == JsonValueKind.String)
-            {
-                return name.GetString() ?? System.IO.Path.GetFileNameWithoutExtension(path);
-            }
+            var root = document.RootElement;
+            string name = root.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
+                ? n.GetString() ?? fallback
+                : fallback;
+            string description = root.TryGetProperty("description", out var d) && d.ValueKind == JsonValueKind.String
+                ? d.GetString() ?? ""
+                : "";
+            return (name, description);
         }
         catch
         {
+            return (fallback, "");
         }
-        return System.IO.Path.GetFileNameWithoutExtension(path);
+    }
+
+    public bool HasConstant(string name) => _constants.ContainsKey(name);
+
+    /// <summary>
+    /// A constant's value in a Windows mode. Overrides (from the settings
+    /// window) are named "name@light" / "name@dark" for one mode, or "name".
+    /// </summary>
+    public string? GetConstant(string name, bool lightMode, IReadOnlyDictionary<string, string>? overrides = null)
+    {
+        if (!_constants.TryGetValue(name, out var value))
+        {
+            return null;
+        }
+        if (overrides != null)
+        {
+            if (overrides.TryGetValue($"{name}@{(lightMode ? "light" : "dark")}", out var modeValue))
+            {
+                return modeValue;
+            }
+            if (overrides.TryGetValue(name, out var anyValue))
+            {
+                return anyValue;
+            }
+        }
+        return lightMode ? value.Light : value.Dark;
     }
 
     /// <summary>
     /// The rules to send to the engine: `common` plus `maximized` (when a
     /// window is maximized and the theme should merge) or `floating`.
     /// </summary>
-    public List<RuleSpec> Compile(ThemeTarget target, bool lightMode, bool maximized)
+    public List<RuleSpec> Compile(ThemeTarget target, bool lightMode, bool maximized,
+        IReadOnlyDictionary<string, string>? overrides = null)
     {
         string prefix = target == ThemeTarget.Taskbar ? "taskbar" : "startMenu";
         var rules = new List<RuleSpec>();
         AddSection(rules, $"{prefix}.common");
         AddSection(rules, maximized ? $"{prefix}.maximized" : $"{prefix}.floating");
 
-        var constants = _constants
-            .Select(c => (Name: "$" + c.Key, Value: lightMode ? c.Value.Light : c.Value.Dark))
+        var constants = _constants.Keys
+            .Select(name => (Name: "$" + name, Value: GetConstant(name, lightMode, overrides) ?? ""))
             .OrderByDescending(c => c.Name.Length)
             .ToList();
 

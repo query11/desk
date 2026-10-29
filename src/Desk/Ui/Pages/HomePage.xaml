@@ -1,0 +1,191 @@
+<Page
+    x:Class="Desk.Ui.Pages.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="概览">
+    <StackPanel Margin="40,8,40,40">
+        <TextBlock
+            Margin="0,0,0,20"
+            FontSize="28"
+            FontWeight="SemiBold"
+            Text="概览" />
+
+        <!--  The master switch  -->
+        <Border
+            Padding="24,20"
+            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Image
+                    Width="64"
+                    Height="64"
+                    Source="pack://application:,,,/Desk;component/Assets/desk.png" />
+                <StackPanel
+                    Grid.Column="1"
+                    Margin="20,0,16,0"
+                    VerticalAlignment="Center">
+                    <TextBlock
+                        FontSize="20"
+                        FontWeight="SemiBold"
+                        Text="桌面美化" />
+                    <TextBlock
+                        x:Name="SummaryText"
+                        Margin="0,4,0,0"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+                <ui:ToggleSwitch
+                    x:Name="EnabledSwitch"
+                    Grid.Column="2"
+                    VerticalAlignment="Center"
+                    OffContent="已停用"
+                    OnContent="已启用" />
+            </Grid>
+        </Border>
+
+        <ui:InfoBar
+            x:Name="EngineErrorInfo"
+            Title="引擎无法启动"
+            Margin="0,12,0,0"
+            IsClosable="False"
+            Severity="Error" />
+        <ui:InfoBar
+            x:Name="OutdatedInfo"
+            Title="Desk 已更新"
+            Margin="0,12,0,0"
+            IsClosable="False"
+            Message="资源管理器里还在运行旧版本的引擎。重启资源管理器后，新的效果才会完全生效（打开的文件夹窗口会被关闭）。"
+            Severity="Informational" />
+        <ui:InfoBar
+            x:Name="ConflictInfo"
+            Title="可能有冲突"
+            Margin="0,12,0,0"
+            IsClosable="True"
+            Severity="Warning" />
+
+        <TextBlock
+            Margin="0,28,0,8"
+            FontSize="14"
+            FontWeight="SemiBold"
+            Text="状态" />
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="TabDesktopBottom24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="任务栏" />
+                    <TextBlock
+                        x:Name="TaskbarStatusText"
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:SymbolIcon x:Name="TaskbarStatusIcon" FontSize="20" />
+        </ui:CardControl>
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Apps24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="开始菜单" />
+                    <TextBlock
+                        x:Name="StartMenuStatusText"
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:SymbolIcon x:Name="StartMenuStatusIcon" FontSize="20" />
+        </ui:CardControl>
+
+        <TextBlock
+            Margin="0,28,0,8"
+            FontSize="14"
+            FontWeight="SemiBold"
+            Text="主题" />
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="PaintBrush24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="当前主题" />
+                    <TextBlock
+                        x:Name="ThemeDescriptionText"
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ComboBox
+                x:Name="ThemeBox"
+                MinWidth="240"
+                DisplayMemberPath="Name" />
+        </ui:CardControl>
+
+        <TextBlock
+            Margin="0,28,0,8"
+            FontSize="14"
+            FontWeight="SemiBold"
+            Text="快捷操作" />
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="ArrowSync24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="重新应用" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="重新读取主题并重新连接任务栏和开始菜单。样式没有生效时可以试试。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:Button
+                x:Name="ReapplyButton"
+                MinWidth="120"
+                Content="重新应用" />
+        </ui:CardControl>
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="ArrowClockwise24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="重启资源管理器" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="任务栏会消失几秒再出现，打开的文件夹窗口会被关闭。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:Button
+                x:Name="RestartExplorerButton"
+                MinWidth="120"
+                Content="重启" />
+        </ui:CardControl>
+
+        <TextBlock
+            Margin="2,16,0,0"
+            FontSize="12"
+            Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+            Text="提示：随时按 Ctrl + Alt + Shift + D 可以停用或恢复美化。关闭这个窗口后 Desk 会留在托盘里继续工作。"
+            TextWrapping="Wrap" />
+    </StackPanel>
+</Page>

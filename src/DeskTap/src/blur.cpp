@@ -35,6 +35,73 @@ bool IsEnergySaverOn() {
     return GetSystemPowerStatus(&status) && status.SystemStatusFlag != 0;
 }
 
+// A tileable gray noise bitmap (BMP) in memory, from the Windows 11 Taskbar
+// Styler mod for Windhawk. The opacity is applied by the effect graph.
+winrt::Windows::Storage::Streams::IRandomAccessStream CreateNoiseStream(
+    float density) {
+    using winrt::Windows::Storage::Streams::DataWriter;
+    using winrt::Windows::Storage::Streams::InMemoryRandomAccessStream;
+
+    // Every brush on a thread shares one generated bitmap per density; each
+    // caller gets its own clone so that they don't share a seek position.
+    thread_local float cachedDensity = std::numeric_limits<float>::quiet_NaN();
+    thread_local InMemoryRandomAccessStream cachedStream{nullptr};
+    if (cachedStream && density == cachedDensity) {
+        return cachedStream.CloneStream();
+    }
+
+    constexpr LONG kSize = 256;  // Large enough to hide the tiling.
+    constexpr DWORD kDataSize = static_cast<DWORD>(kSize) * kSize * 4;
+
+    constexpr DWORD kHeadersSize =
+        sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+
+    BITMAPFILEHEADER fileHeader{};
+    fileHeader.bfType = 0x4D42;  // "BM"
+    fileHeader.bfSize = kHeadersSize + kDataSize;
+    fileHeader.bfOffBits = kHeadersSize;
+
+    BITMAPINFOHEADER infoHeader{};
+    infoHeader.biSize = static_cast<DWORD>(sizeof(BITMAPINFOHEADER));
+    infoHeader.biWidth = kSize;
+    infoHeader.biHeight = kSize;
+    infoHeader.biPlanes = 1;
+    infoHeader.biBitCount = 32;
+    infoHeader.biSizeImage = kDataSize;
+
+    float exponent = 1.0f / std::clamp(density, 0.001f, 1.0f);
+    uint8_t curve[256];
+    for (int i = 0; i < 256; i++) {
+        curve[i] = static_cast<uint8_t>(std::pow(i / 255.0f, exponent) * 255.0f);
+    }
+
+    std::vector<uint8_t> pixels(kDataSize);
+    std::mt19937 random(0);
+    std::uniform_int_distribution<int> distribution(0, 255);
+    for (size_t i = 0; i < pixels.size(); i += 4) {
+        uint8_t gray = curve[distribution(random)];
+        pixels[i] = gray;
+        pixels[i + 1] = gray;
+        pixels[i + 2] = gray;
+        pixels[i + 3] = 255;
+    }
+
+    InMemoryRandomAccessStream stream;
+    DataWriter writer(stream);
+    writer.WriteBytes(winrt::array_view<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(&fileHeader), sizeof(fileHeader)));
+    writer.WriteBytes(winrt::array_view<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(&infoHeader), sizeof(infoHeader)));
+    writer.WriteBytes(pixels);
+    // Completes synchronously for an in-memory stream.
+    writer.StoreAsync().get();
+    writer.DetachStream();
+
+    cachedStream = std::move(stream);
+    cachedDensity = density;
+    return cachedStream.CloneStream();
+}
+
 }  // namespace
 
 DeskBlurBrush::DeskBlurBrush(wux::UIElement const& element, BlurParams params)
@@ -216,6 +283,42 @@ wuc::CompositionBrush DeskBlurBrush::CreateEffectBrush() {
         top = *luminosity;
     }
 
+    // Grain, tiled across the element. It breaks up the banding a strong blur
+    // produces, and is what makes acrylic look like a material.
+    wuc::CompositionSurfaceBrush noiseBrush{nullptr};
+    if (m_params.noiseOpacity > 0.0f) {
+        try {
+            auto surface = wuxm::LoadedImageSurface::StartLoadFromStream(
+                CreateNoiseStream(m_params.noiseDensity));
+            noiseBrush = m_compositor.CreateSurfaceBrush(surface);
+            noiseBrush.Stretch(wuc::CompositionStretch::None);
+        } catch (...) {
+            DLOG(L"Blur brush: no noise texture: %08X",
+                 winrt::to_hresult().value);
+            noiseBrush = nullptr;
+        }
+    }
+    if (noiseBrush) {
+        auto tiled = winrt::make_self<effects::BorderEffect>();
+        tiled->Source = wuc::CompositionEffectSourceParameter(L"noise");
+
+        // The texture is opaque; scale all premultiplied channels to fade it.
+        float opacity = std::clamp(m_params.noiseOpacity, 0.0f, 1.0f);
+        auto faded = winrt::make_self<effects::ColorMatrixEffect>();
+        faded->Source = *tiled;
+        faded->Matrix[0] = opacity;
+        faded->Matrix[5] = opacity;
+        faded->Matrix[10] = opacity;
+        faded->Matrix[15] = opacity;
+        faded->Name(L"NoiseOpacity");
+
+        auto grain = winrt::make_self<effects::CompositeEffect>();
+        grain->Mode = D2D1_COMPOSITE_MODE_SOURCE_OVER;
+        grain->Sources.push_back(top);
+        grain->Sources.push_back(*faded);
+        top = *grain;
+    }
+
     auto flood = winrt::make_self<effects::FloodEffect>();
     const auto& tint = m_params.tint;
     flood->Color = {tint.R / 255.0f, tint.G / 255.0f, tint.B / 255.0f,
@@ -230,6 +333,9 @@ wuc::CompositionBrush DeskBlurBrush::CreateEffectBrush() {
     auto factory = m_compositor.CreateEffectFactory(*composite);
     auto brush = factory.CreateBrush();
     brush.SetSourceParameter(L"backdrop", m_compositor.CreateBackdropBrush());
+    if (noiseBrush) {
+        brush.SetSourceParameter(L"noise", noiseBrush);
+    }
     return brush;
 }
 
