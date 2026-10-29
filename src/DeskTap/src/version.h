@@ -1,0 +1,7 @@
+#pragma once
+
+#define DESKTAP_VERSION L"0.1.0"
+
+// {DCF03332-1967-4CC8-97F3-8245FD81D904}
+inline constexpr CLSID CLSID_DeskTap = {
+    0xdcf03332, 0x1967, 0x4cc8, {0x97, 0xf3, 0x82, 0x45, 0xfd, 0x81, 0xd9, 0x04}};

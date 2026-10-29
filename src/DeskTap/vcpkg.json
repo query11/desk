@@ -1,0 +1,7 @@
+{
+  "name": "desktap",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "minhook"
+  ]
+}

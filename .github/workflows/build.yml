@@ -1,0 +1,59 @@
+name: build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build DeskTap.dll
+        shell: pwsh
+        run: |
+          cmake -S src/DeskTap -B build/DeskTap -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build/DeskTap --config Release
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Set up .NET
+        if: hashFiles('src/Desk/Desk.csproj') != ''
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build Desk.exe
+        if: hashFiles('src/Desk/Desk.csproj') != ''
+        shell: pwsh
+        run: |
+          dotnet publish src/Desk/Desk.csproj -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true -o dist/Desk
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/Desk | Out-Null
+          Copy-Item build/DeskTap/Release/DeskTap.dll dist/Desk/
+          if (Test-Path themes) { Copy-Item -Recurse -Force themes dist/Desk/themes }
+          Copy-Item LICENSE dist/Desk/LICENSE.txt
+          Get-ChildItem dist/Desk -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: Desk-${{ github.sha }}
+          path: dist/Desk
+          if-no-files-found: error

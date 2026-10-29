@@ -1,0 +1,5 @@
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE
+    DeskTap_HookProc
+    DeskTap_Version
