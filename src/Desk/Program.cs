@@ -21,6 +21,9 @@ internal static class Program
             {
                 using (show)
                 {
+                    // This process was started by the user, so it may hand
+                    // the right to come to the front to the running Desk.
+                    NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
                     show.Set();
                 }
             }

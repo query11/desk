@@ -44,7 +44,7 @@ internal sealed partial class DeskApp : ApplicationContext
     private readonly string? _engineError;
     private readonly System.Windows.Forms.Timer _timer = new();
     private readonly System.Windows.Forms.Timer _themeReload = new() { Interval = 300 };
-    private readonly System.Windows.Forms.Timer _applySoon = new() { Interval = 60 };
+    private readonly System.Windows.Forms.Timer _applySoon = new() { Interval = 100 };
     private readonly List<FileSystemWatcher> _themeWatchers = [];
     private readonly List<DateTime> _explorerRestarts = [];
     private readonly Icon _iconEnabled = TrayIcons.Create(true);
@@ -355,11 +355,16 @@ internal sealed partial class DeskApp : ApplicationContext
         UpdateTray();
     }
 
-    /// <summary>Applies after a short delay, merging quick successive changes (slider drags).</summary>
+    /// <summary>
+    /// Applies shortly, at most every 100 ms: a slider drag updates the
+    /// taskbar while it goes on, without rewriting the rules for every pixel.
+    /// </summary>
     private void ApplySoon()
     {
-        _applySoon.Stop();
-        _applySoon.Start();
+        if (!_applySoon.Enabled)
+        {
+            _applySoon.Start();
+        }
     }
 
     private void Tick()

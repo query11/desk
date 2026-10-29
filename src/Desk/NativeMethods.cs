@@ -119,6 +119,11 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
 
+    public const uint ASFW_ANY = unchecked((uint)-1);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool AllowSetForegroundWindow(uint processId);
+
     [DllImport("user32.dll")]
     public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
 
