@@ -114,11 +114,41 @@ internal sealed class WindowsTargetPlatform : ITargetPlatform
     /// load the DLL there (TranslucentTB uses the same approach). The DLL pins
     /// itself, so unhooking afterwards doesn't unload it.
     /// </summary>
+    /// <summary>
+    /// For testing recovery on a real system: while
+    /// %LOCALAPPDATA%\Desk\state\fault.inject.&lt;process&gt; exists, loading
+    /// fails at the stage written in it (e.g. "CreateThread"), with error 5.
+    /// </summary>
+    private static InjectResult? InjectedFault(string process)
+    {
+        try
+        {
+            string path = Path.Combine(Paths.StateDir, "fault.inject." + process);
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+            var stage = Enum.TryParse<InjectStage>(File.ReadAllText(path).Trim(), true, out var parsed)
+                ? parsed
+                : InjectStage.OpenProcess;
+            Log.Warn($"Loading into {process} fails on purpose at {stage} (fault file present)");
+            return InjectResult.Fail(stage, 5);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public InjectResult InjectWithHook(TaskbarTarget target, TimeSpan timeout, CancellationToken cancel)
     {
         if (cancel.IsCancellationRequested)
         {
             return InjectResult.Cancelled;
+        }
+        if (InjectedFault(RuntimeWriter.ExplorerFile) is { } fault)
+        {
+            return fault;
         }
         IntPtr hook = SetWindowsHookExW(WH_GETMESSAGE, _injector.HookProc, _injector.Module, target.ThreadId);
         if (hook == IntPtr.Zero)
@@ -165,6 +195,10 @@ internal sealed class WindowsTargetPlatform : ITargetPlatform
         if (cancel.IsCancellationRequested)
         {
             return InjectResult.Cancelled;
+        }
+        if (InjectedFault(RuntimeWriter.StartMenuFile) is { } fault)
+        {
+            return fault;
         }
         IntPtr process = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
                                      PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ | SYNCHRONIZE,

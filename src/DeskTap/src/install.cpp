@@ -127,7 +127,20 @@ DWORD WINAPI InstallThread(LPVOID) {
     return 0;
 }
 
+// For testing recovery on a real system: while
+// <base>\state\fault.engine-init.<process> exists, initialization fails.
+// The folder is readable from the Start menu's app container; the file
+// never exists unless a tester creates it.
+bool InitFaultInjected() {
+    std::wstring path = paths::StateDir() + L"\\fault.engine-init." + paths::ProcessName();
+    return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
 InitResult Initialize() {
+    if (InitFaultInjected()) {
+        DLOG(L"Initialization fails on purpose (fault file present)");
+        return {false, L"FaultInjection", E_FAIL};
+    }
     if (!regpatch::Install()) {
         // Without it, composition diagnostics may corrupt explorer's heap.
         return {false, L"RegistryHooks", E_FAIL};
