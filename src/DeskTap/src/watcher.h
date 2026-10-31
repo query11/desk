@@ -17,6 +17,10 @@ public:
 
     void Unadvise();
 
+    // Starts AdviseVisualTreeChange on a new thread unless one is running;
+    // the result goes to install::OnAdviseResult.
+    void Advise();
+
 private:
     HRESULT STDMETHODCALLTYPE OnVisualTreeChange(
         ParentChildRelation relation,
@@ -31,6 +35,11 @@ private:
 
     winrt::com_ptr<IXamlDiagnostics> m_diagnostics;
     winrt::com_ptr<IUnknown> m_testHooks;
+    std::atomic<bool> m_advising{false};
 };
+
+// Advises the current watcher again after a failure. False when there is no
+// watcher (no TAP site yet).
+bool RetryAdvise();
 
 }  // namespace desk

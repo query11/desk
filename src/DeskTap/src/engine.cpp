@@ -10,9 +10,11 @@
 #include "engine.h"
 #include "clickthrough.h"
 #include "config.h"
+#include "control.h"
 #include "log.h"
 #include "monitor.h"
 #include "paths.h"
+#include "status.h"
 #include "surface.h"
 #include "values.h"
 
@@ -38,7 +40,7 @@ struct TrackedElement {
     winrt::weak_ref<wux::FrameworkElement> element;
     std::wstring diagnosticsType;
     std::vector<AppliedProperty> properties;
-    uint64_t serial = UINT64_MAX;
+    uint64_t revision = UINT64_MAX;
 };
 
 using ConditionValues =
@@ -47,7 +49,7 @@ using ConditionValues =
 // Resolved values for one configuration. Held by shared_ptr so that a config
 // change in the middle of applying can't free values still in use.
 struct Cache {
-    uint64_t serial = 0;
+    uint64_t revision = 0;
     std::unordered_map<std::wstring, std::vector<ResolvedStyle>> styles;
     std::unordered_map<std::wstring, ConditionValues> conditions;
 };
@@ -64,7 +66,14 @@ struct ThreadState {
     wux::ElementTheme originalTheme = wux::ElementTheme::Default;
     std::optional<wux::ElementTheme> wantedTheme;
     int64_t themeCallbackToken = 0;
-    uint64_t themeSerial = UINT64_MAX;
+    uint64_t themeRevision = UINT64_MAX;
+
+    // What this thread reports to Desk.exe (status.h): the revision it fully
+    // applied, and styles that failed for it.
+    uint64_t appliedRevision = 0;
+    uint64_t appliedSerial = 0;
+    uint32_t errors = 0;
+    bool reportScheduled = false;
 };
 
 // Each XAML UI thread has its own elements; all access happens on that thread.
@@ -109,9 +118,9 @@ ThreadState& StateFor(wux::FrameworkElement const& element) {
 }
 
 std::shared_ptr<Cache> CacheFor(ThreadState& state, const Config& config) {
-    if (!state.cache || state.cache->serial != config.serial) {
+    if (!state.cache || state.cache->revision != config.revision) {
         state.cache = std::make_shared<Cache>();
-        state.cache->serial = config.serial;
+        state.cache->revision = config.revision;
     }
     return state.cache;
 }
@@ -463,6 +472,7 @@ void Apply(ThreadState& state,
         } catch (...) {
             DLOG(L"Can't create value for '%s': %08X", style->signature.c_str(),
                  winrt::to_hresult().value);
+            state.errors++;
             continue;
         }
 
@@ -510,7 +520,7 @@ void Evaluate(ThreadState& state,
               wux::FrameworkElement const& element,
               const Config& config,
               bool initial) {
-    tracked.serial = config.serial;
+    tracked.revision = config.revision;
 
     // Keeps the resolved values alive while they are being applied.
     auto cache = CacheFor(state, config);
@@ -568,7 +578,7 @@ void ApplyRequestedTheme(const Config& config) {
         return;
     }
     auto& state = *t_state;
-    state.themeSerial = config.serial;
+    state.themeRevision = config.revision;
     state.wantedTheme = config.enabled ? config.requestedTheme : std::nullopt;
 
     wux::FrameworkElement root{nullptr};
@@ -623,17 +633,58 @@ void ApplyRequestedTheme(const Config& config) {
          *state.wantedTheme == wux::ElementTheme::Dark ? L"dark" : L"light");
 }
 
+// Tells Desk.exe how far this thread got (see core/apply_status.h).
+void Report(ThreadState& state) {
+    uint32_t matched = 0;
+    for (const auto& [handle, tracked] : state.elements) {
+        if (!tracked.properties.empty() && tracked.element.get()) {
+            matched++;
+        }
+    }
+    status::ReportThread(GetCurrentThreadId(),
+                         {state.appliedRevision, state.appliedSerial, matched,
+                          state.errors});
+    control::Wake();
+}
+
+// Reports once the current burst of added elements is through.
+void ScheduleReport(ThreadState& state) {
+    if (state.reportScheduled) {
+        return;
+    }
+    auto queue = DispatcherQueue::GetForCurrentThread();
+    if (!queue) {
+        Report(state);
+        return;
+    }
+    state.reportScheduled = queue.TryEnqueue(DispatcherQueuePriority::Low, [] {
+        try {
+            if (t_state) {
+                t_state->reportScheduled = false;
+                Report(*t_state);
+            }
+        } catch (...) {
+        }
+    });
+    if (!state.reportScheduled) {
+        status::Count(status::kDispatcherPostFailures);
+    }
+}
+
 void ReapplyAll() {
     if (!t_state) {
         return;
     }
     auto& state = *t_state;
     auto config = config::Current();
+    if (state.appliedRevision != config->revision) {
+        state.errors = 0;
+    }
 
     std::vector<InstanceHandle> handles;
     handles.reserve(state.elements.size());
     for (const auto& [handle, tracked] : state.elements) {
-        if (tracked.serial != config->serial) {
+        if (tracked.revision != config->revision) {
             handles.push_back(handle);
         }
     }
@@ -651,6 +702,7 @@ void ReapplyAll() {
         try {
             Evaluate(state, handle, it->second, element, *config, false);
         } catch (...) {
+            state.errors++;
             DLOG(L"Re-applying styles failed: %08X", winrt::to_hresult().value);
         }
     }
@@ -663,7 +715,11 @@ void ReapplyAll() {
     }
     ApplyRequestedTheme(*config);
 
-    DLOG(L"Applied config %llu to %zu elements on this thread", config->serial,
+    state.appliedRevision = config->revision;
+    state.appliedSerial = config->serial;
+    Report(state);
+    DLOG(L"Applied config %llu (revision %llu, %s) to %zu elements on this thread",
+         config->serial, config->revision, config->enabled ? L"on" : L"off",
          handles.size());
 }
 
@@ -687,10 +743,22 @@ void OnElementAdded(InstanceHandle handle,
         it->second = TrackedElement{};
     }
 
+    if (state.appliedRevision == 0) {
+        // A new thread starts out with the configuration it first sees; a
+        // later change reaches it through ReapplyAll.
+        state.appliedRevision = config->revision;
+        state.appliedSerial = config->serial;
+    }
+
     auto& tracked = it->second;
     tracked.element = winrt::make_weak(element);
     tracked.diagnosticsType = diagnosticsType;
-    Evaluate(state, handle, tracked, element, *config, true);
+    try {
+        Evaluate(state, handle, tracked, element, *config, true);
+    } catch (...) {
+        state.errors++;
+        DLOG(L"Applying styles failed: %08X", winrt::to_hresult().value);
+    }
 
     if (paths::IsExplorer()) {
         if (winrt::get_class_name(element) == L"Taskbar.TaskbarFrame") {
@@ -701,8 +769,8 @@ void OnElementAdded(InstanceHandle handle,
                                      config->enabled && config->clickThrough);
     }
 
-    if (paths::IsStartMenu() && state.themeSerial != config->serial) {
-        state.themeSerial = config->serial;
+    if (paths::IsStartMenu() && state.themeRevision != config->revision) {
+        state.themeRevision = config->revision;
         if (auto queue = DispatcherQueue::GetForCurrentThread()) {
             queue.TryEnqueue(DispatcherQueuePriority::Low, [] {
                 try {
@@ -714,6 +782,7 @@ void OnElementAdded(InstanceHandle handle,
     }
 
     FlushPendingRemovals(state);
+    ScheduleReport(state);
 
     if (++state.addsSincePrune >= 512) {
         state.addsSincePrune = 0;

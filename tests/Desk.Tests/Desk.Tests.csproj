@@ -18,11 +18,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\src\Desk\EngineStatus.cs" Link="Production\EngineStatus.cs" />
     <Compile Include="..\..\src\Desk\Log.cs" Link="Production\Log.cs" />
     <Compile Include="..\..\src\Desk\Paths.cs" Link="Production\Paths.cs" />
     <Compile Include="..\..\src\Desk\RestartGuard.cs" Link="Production\RestartGuard.cs" />
+    <Compile Include="..\..\src\Desk\RuntimeWriter.cs" Link="Production\RuntimeWriter.cs" />
     <Compile Include="..\..\src\Desk\TargetManager.cs" Link="Production\TargetManager.cs" />
     <Compile Include="..\..\src\Desk\TargetPlatform.cs" Link="Production\TargetPlatform.cs" />
+    <Compile Include="..\..\src\Desk\Theme.cs" Link="Production\Theme.cs" />
   </ItemGroup>
 
   <ItemGroup>

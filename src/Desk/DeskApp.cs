@@ -6,28 +6,6 @@ using Microsoft.Win32;
 
 namespace Desk;
 
-/// <summary>How far the engine got in a target process.</summary>
-internal enum EngineStatus
-{
-    /// <summary>Styling is turned off for this target.</summary>
-    Off,
-
-    /// <summary>Looking for the process or loading the engine into it.</summary>
-    Connecting,
-
-    /// <summary>The engine is loaded and applies the theme.</summary>
-    Active,
-
-    /// <summary>Loaded once the process wakes up (the Start menu is opened).</summary>
-    Waiting,
-
-    /// <summary>Loading failed; retried automatically.</summary>
-    Failed,
-
-    /// <summary>The engine can't run (missing DeskTap.dll, unsupported system).</summary>
-    Unavailable,
-}
-
 /// <summary>
 /// The tray application: owns the settings, the theme and the engine, and
 /// opens the settings window on demand.
@@ -43,6 +21,7 @@ internal sealed partial class DeskApp : ApplicationContext
     private readonly WindowMonitor _windows;
     private readonly AutoHideController _autoHide = new();
     private readonly RuntimeWriter _runtime = new();
+    private readonly EngineStatusReader _engineReports = new(Paths.StateDir);
     private readonly TargetManager? _targets;
     private readonly string? _engineError;
     private readonly string? _dllPath;
@@ -60,7 +39,8 @@ internal sealed partial class DeskApp : ApplicationContext
     private Theme? _theme;
     private bool _lightMode;
     private DateTime _fastTicksUntil;
-    private (EngineStatus Taskbar, EngineStatus StartMenu, bool Outdated) _lastStatus;
+    private (TargetStatus Taskbar, TargetStatus StartMenu) _lastStatus;
+    private DateTime _nextStatusCleanup;
     private bool _windowLoaded;
     private bool _outdatedNoticeShown;
     private bool _exiting;
@@ -215,6 +195,11 @@ internal sealed partial class DeskApp : ApplicationContext
             Directory.CreateDirectory(Paths.LogsDir);
             Acl.GrantAppContainers(Paths.LogsDir, FileSystemRights.Modify);
             Acl.SetLowIntegrity(Paths.LogsDir);
+            // The engines report their status here, the Start menu's from an
+            // app container.
+            Directory.CreateDirectory(Paths.StateDir);
+            Acl.GrantAppContainers(Paths.StateDir, FileSystemRights.Modify);
+            Acl.SetLowIntegrity(Paths.StateDir);
             Directory.CreateDirectory(Paths.UserThemesDir);
         }
         catch (Exception e)
@@ -438,22 +423,39 @@ internal sealed partial class DeskApp : ApplicationContext
             _timer.Interval = interval;
         }
 
-        var status = (TaskbarStatus, StartMenuStatus, ExplorerOutdated);
+        var status = (Taskbar, StartMenu);
         if (status != _lastStatus)
         {
-            _lastStatus = status;
-            if (status.Item1 == EngineStatus.Active && DateTime.UtcNow - _startedAt < TimeSpan.FromMinutes(5))
+            if (status.Taskbar.Status != _lastStatus.Taskbar?.Status ||
+                status.StartMenu.Status != _lastStatus.StartMenu?.Status)
             {
-                Log.Info($"Taskbar engine loaded {(DateTime.UtcNow - _startedAt).TotalMilliseconds:0} ms after start");
+                Log.Info($"Status: taskbar {status.Taskbar.Status}{Suffix(status.Taskbar)}, " +
+                         $"Start menu {status.StartMenu.Status}{Suffix(status.StartMenu)}");
             }
-            if (status.Item3 && !_outdatedNoticeShown)
+            if (status.Taskbar.Status == EngineStatus.Active && _lastStatus.Taskbar?.Status != EngineStatus.Active &&
+                DateTime.UtcNow - _startedAt < TimeSpan.FromMinutes(5))
+            {
+                Log.Info($"Taskbar engine loaded and applied {(DateTime.UtcNow - _startedAt).TotalMilliseconds:0} ms after start");
+            }
+            _lastStatus = status;
+            if (status.Taskbar.Status == EngineStatus.Outdated && !_outdatedNoticeShown)
             {
                 _outdatedNoticeShown = true;
                 Notify("Desk 已更新", "资源管理器里还在运行旧版本的引擎，重启资源管理器后新效果才会完全生效（设置窗口和托盘菜单里都可以重启）。");
             }
             StatusChanged?.Invoke();
         }
+
+        if (DateTime.UtcNow >= _nextStatusCleanup)
+        {
+            _nextStatusCleanup = DateTime.UtcNow.AddMinutes(10);
+            _engineReports.CleanUp((pid, start) =>
+                WindowsTargetPlatform.ProcessStartTime(pid) is var actual && actual != 0 &&
+                (start == 0 || actual == start));
+        }
     }
+
+    private static string Suffix(TargetStatus status) => status.Detail is { } detail ? $" ({detail})" : "";
 
     private void OnExplorerChanged(ProcessInstance process)
     {

@@ -19,6 +19,9 @@ internal static class Paths
 
     public static string LogsDir => Path.Combine(DataDir, "logs");
 
+    /// <summary>Status reports of the engines, written from the target processes.</summary>
+    public static string StateDir => Path.Combine(DataDir, "state");
+
     /// <summary>%APPDATA%\Desk: user settings and user themes.</summary>
     public static string SettingsDir { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Desk");

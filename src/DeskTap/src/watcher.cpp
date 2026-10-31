@@ -6,6 +6,7 @@
 #include "watcher.h"
 #include "clickthrough.h"
 #include "engine.h"
+#include "install.h"
 #include "log.h"
 #include "paths.h"
 #include "regpatch.h"
@@ -54,6 +55,13 @@ VisualTreeWatcher::VisualTreeWatcher(winrt::com_ptr<IUnknown> site)
     } else {
         DLOG(L"IXamlDiagnosticsTestHooks unavailable; removed elements stay referenced");
     }
+    Advise();
+}
+
+void VisualTreeWatcher::Advise() {
+    if (m_advising.exchange(true)) {
+        return;
+    }
 
     // Advising from the current thread can hang in Advising::RunOnUIThread, so
     // it happens on a new thread. Windows.UI.Xaml reads DisableCompositionDiag
@@ -71,6 +79,8 @@ VisualTreeWatcher::VisualTreeWatcher(winrt::com_ptr<IUnknown> site)
                          ->AdviseVisualTreeChange(self);
             }
             DLOG(L"AdviseVisualTreeChange: %08X", static_cast<uint32_t>(hr));
+            self->m_advising = false;
+            install::OnAdviseResult(hr);
             self->Release();
             return 0;
         },
@@ -78,6 +88,9 @@ VisualTreeWatcher::VisualTreeWatcher(winrt::com_ptr<IUnknown> site)
     if (thread) {
         CloseHandle(thread);
     } else {
+        HRESULT hr = HRESULT_FROM_WIN32(GetLastError());
+        m_advising = false;
+        install::OnAdviseResult(hr);
         Release();
     }
 }

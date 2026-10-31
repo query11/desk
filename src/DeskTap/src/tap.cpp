@@ -2,6 +2,7 @@
 // target process. Based on TAPSite and SimpleFactory from TranslucentTB's
 // ExplorerTAP (https://github.com/TranslucentTB/TranslucentTB, GPL-3.0).
 #include "pch.h"
+#include "install.h"
 #include "log.h"
 #include "version.h"
 #include "watcher.h"
@@ -9,21 +10,30 @@
 namespace desk {
 namespace {
 
+// Replaced on SetSite (a XAML thread), read by the initialization worker.
+std::mutex g_watcherMutex;
 winrt::com_ptr<VisualTreeWatcher> g_watcher;
 
 class DeskTapSite
     : public winrt::implements<DeskTapSite, IObjectWithSite, winrt::non_agile> {
 public:
     HRESULT STDMETHODCALLTYPE SetSite(IUnknown* site) override try {
-        // Only one watcher at a time.
-        if (g_watcher) {
-            g_watcher->Unadvise();
-            g_watcher = nullptr;
+        winrt::com_ptr<VisualTreeWatcher> previous;
+        {
+            // Only one watcher at a time.
+            std::lock_guard lock(g_watcherMutex);
+            previous = std::move(g_watcher);
+        }
+        if (previous) {
+            previous->Unadvise();
         }
 
         m_site.copy_from(site);
         if (m_site) {
-            g_watcher = winrt::make_self<VisualTreeWatcher>(m_site);
+            install::OnSiteSet();
+            auto watcher = winrt::make_self<VisualTreeWatcher>(m_site);
+            std::lock_guard lock(g_watcherMutex);
+            g_watcher = std::move(watcher);
         }
         return S_OK;
     } catch (...) {
@@ -60,6 +70,20 @@ public:
 };
 
 }  // namespace
+
+bool RetryAdvise() {
+    winrt::com_ptr<VisualTreeWatcher> watcher;
+    {
+        std::lock_guard lock(g_watcherMutex);
+        watcher = g_watcher;
+    }
+    if (!watcher) {
+        return false;
+    }
+    watcher->Advise();
+    return true;
+}
+
 }  // namespace desk
 
 _Use_decl_annotations_ STDAPI DllGetClassObject(REFCLSID rclsid,

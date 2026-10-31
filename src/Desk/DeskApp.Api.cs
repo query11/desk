@@ -126,28 +126,23 @@ internal sealed partial class DeskApp
                 StateChanged?.Invoke();
             }));
 
-    public EngineStatus TaskbarStatus => _targets == null
-        ? EngineStatus.Unavailable
-        : !_settings.Enabled
-            ? EngineStatus.Off
-            : FromInjection(_targets.Explorer);
+    /// <summary>Whether the taskbar is styled, with the engine's own report as evidence.</summary>
+    public TargetStatus Taskbar => _targets == null
+        ? new TargetStatus(EngineStatus.Unavailable)
+        : EngineStatusEvaluator.Evaluate(_settings.Enabled, _targets.Explorer,
+            _engineReports.Read(RuntimeWriter.ExplorerFile, _targets.Explorer.Process),
+            _runtime.LastSerial(RuntimeWriter.ExplorerFile), DateTime.UtcNow);
 
-    public EngineStatus StartMenuStatus => _targets == null
-        ? EngineStatus.Unavailable
-        : !_settings.Enabled || !_settings.StyleStartMenu
-            ? EngineStatus.Off
-            : FromInjection(_targets.StartMenu);
+    public TargetStatus StartMenu => _targets == null
+        ? new TargetStatus(EngineStatus.Unavailable)
+        : EngineStatusEvaluator.Evaluate(_settings.Enabled && _settings.StyleStartMenu, _targets.StartMenu,
+            _engineReports.Read(RuntimeWriter.StartMenuFile, _targets.StartMenu.Process),
+            _runtime.LastSerial(RuntimeWriter.StartMenuFile), DateTime.UtcNow);
 
-    private static EngineStatus FromInjection(TargetSnapshot target) => target.Phase switch
-    {
-        InjectionPhase.Loaded => EngineStatus.Active,
-        InjectionPhase.Waiting => EngineStatus.Waiting,
-        InjectionPhase.Failed => EngineStatus.Failed,
-        _ => EngineStatus.Connecting,
-    };
+    public EngineStatus TaskbarStatus => Taskbar.Status;
 
     /// <summary>Explorer still runs the engine of an older Desk version.</summary>
-    public bool ExplorerOutdated => _targets?.Explorer.Outdated == true;
+    public bool ExplorerOutdated => _targets?.Explorer.Outdated == true || TaskbarStatus == EngineStatus.Outdated;
 
     public IReadOnlyList<ThemeInfo> GetThemes()
     {
@@ -246,7 +241,9 @@ internal sealed partial class DeskApp
     public void Reapply()
     {
         LoadTheme();
-        _runtime.Invalidate();
+        // Rewrites both files with a new serial, and asks engines whose
+        // initialization failed to try again now.
+        _runtime.RequestRecovery();
         _targets?.Reset();
         _fastTicksUntil = DateTime.UtcNow.AddSeconds(30);
         Apply();

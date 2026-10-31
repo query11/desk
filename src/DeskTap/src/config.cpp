@@ -10,11 +10,16 @@ using winrt::Windows::Data::Json::JsonObject;
 using winrt::Windows::Data::Json::JsonValueType;
 
 std::mutex g_mutex;
+std::shared_ptr<const Config> g_parsed = std::make_shared<Config>();
 std::shared_ptr<const Config> g_current = std::make_shared<Config>();
-std::function<void()> g_onChanged;
 std::wstring g_path;
 FILETIME g_lastWriteTime{};
 ULONGLONG g_lastSize = 0;
+
+// Owned by the control thread.
+std::shared_ptr<const Config> g_effectiveFrom;
+bool g_effectiveLost = false;
+uint64_t g_revision = 0;
 
 std::optional<std::wstring> ReadUtf8File(const std::wstring& path) {
     HANDLE file = CreateFileW(path.c_str(), GENERIC_READ,
@@ -128,6 +133,17 @@ std::shared_ptr<Config> Parse(const std::wstring& text) {
         static_cast<uint64_t>(root.GetNamedNumber(L"serial", 0));
     config->enabled = root.GetNamedBoolean(L"enabled", false);
     config->clickThrough = root.GetNamedBoolean(L"clickThrough", false);
+    config->recover = static_cast<uint64_t>(root.GetNamedNumber(L"recover", 0));
+
+    if (root.HasKey(L"host") &&
+        root.GetNamedValue(L"host").ValueType() == JsonValueType::Object) {
+        auto host = root.GetNamedObject(L"host");
+        config->hostSession = std::wstring(host.GetNamedString(L"session", L""));
+        config->hostPid = static_cast<DWORD>(host.GetNamedNumber(L"pid", 0));
+        // A FILETIME doesn't fit a double exactly; it's written as a string.
+        auto start = host.GetNamedString(L"start", L"0");
+        config->hostStart = wcstoull(start.c_str(), nullptr, 10);
+    }
 
     if (root.HasKey(L"rules") &&
         root.GetNamedValue(L"rules").ValueType() == JsonValueType::Array) {
@@ -149,8 +165,8 @@ std::shared_ptr<Config> Parse(const std::wstring& text) {
     return config;
 }
 
-// Returns true when a new configuration was published.
-bool ReloadIfChanged() {
+// Returns true when a new configuration was parsed.
+bool ReloadIfChangedCore() {
     WIN32_FILE_ATTRIBUTE_DATA attributes{};
     if (!GetFileAttributesExW(g_path.c_str(), GetFileExInfoStandard,
                               &attributes)) {
@@ -187,11 +203,11 @@ bool ReloadIfChanged() {
 
     {
         std::lock_guard lock(g_mutex);
-        if (g_current && g_current->serial == parsed->serial &&
+        if (g_parsed && g_parsed->serial == parsed->serial &&
             parsed->serial != 0) {
             return false;
         }
-        g_current = parsed;
+        g_parsed = parsed;
     }
 
     DLOG(L"Loaded config serial %llu: enabled=%d, %zu rules", parsed->serial,
@@ -199,65 +215,60 @@ bool ReloadIfChanged() {
     return true;
 }
 
-DWORD WINAPI WatchThread(LPVOID) {
-    winrt::init_apartment(winrt::apartment_type::multi_threaded);
+}  // namespace
 
-    std::wstring dir = paths::RuntimeDir();
-    HANDLE change = FindFirstChangeNotificationW(
-        dir.c_str(), FALSE,
-        FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME |
-            FILE_NOTIFY_CHANGE_SIZE);
-    if (change == INVALID_HANDLE_VALUE) {
-        DLOG(L"FindFirstChangeNotification failed (%lu), polling instead",
-             GetLastError());
-    }
+void Init() {
+    g_path = paths::RuntimeDir() + L"\\" + paths::ProcessName() + L".json";
+    DLOG(L"Config path: %s", g_path.c_str());
+}
 
-    for (;;) {
-        if (change != INVALID_HANDLE_VALUE) {
-            if (WaitForSingleObject(change, 2000) == WAIT_OBJECT_0) {
-                // Let the writer finish replacing the file.
-                Sleep(50);
-                FindNextChangeNotification(change);
-            }
-        } else {
-            Sleep(1000);
-        }
-
-        bool changed = false;
-        try {
-            changed = ReloadIfChanged();
-        } catch (...) {
-            DLOG(L"Config reload failed: %08X", winrt::to_hresult().value);
-        }
-
-        if (changed && g_onChanged) {
-            try {
-                g_onChanged();
-            } catch (...) {
-                DLOG(L"Config change handler failed: %08X",
-                     winrt::to_hresult().value);
-            }
-        }
+bool ReloadIfChanged() {
+    try {
+        return ReloadIfChangedCore();
+    } catch (...) {
+        DLOG(L"Config reload failed: %08X", winrt::to_hresult().value);
+        return false;
     }
 }
 
-}  // namespace
+std::shared_ptr<const Config> Parsed() {
+    std::lock_guard lock(g_mutex);
+    return g_parsed;
+}
 
-void Start(std::function<void()> onChanged) {
-    g_onChanged = std::move(onChanged);
-    g_path = paths::RuntimeDir() + L"\\" + paths::ProcessName() + L".json";
-    DLOG(L"Config path: %s", g_path.c_str());
-
-    try {
-        ReloadIfChanged();
-    } catch (...) {
-        DLOG(L"Initial config load failed: %08X", winrt::to_hresult().value);
+bool UpdateEffective(bool hostLost) {
+    auto parsed = Parsed();
+    if (parsed == g_effectiveFrom && hostLost == g_effectiveLost) {
+        return false;
     }
-
-    HANDLE thread = CreateThread(nullptr, 0, WatchThread, nullptr, 0, nullptr);
-    if (thread) {
-        CloseHandle(thread);
+    auto effective = std::make_shared<Config>(*parsed);
+    if (hostLost) {
+        effective->enabled = false;
     }
+    effective->revision = ++g_revision;
+    g_effectiveFrom = parsed;
+    g_effectiveLost = hostLost;
+    {
+        std::lock_guard lock(g_mutex);
+        g_current = std::move(effective);
+    }
+    return true;
+}
+
+std::optional<Heartbeat> ReadHeartbeat() {
+    auto text = ReadUtf8File(paths::RuntimeDir() + L"\\host.json");
+    if (!text) {
+        return std::nullopt;
+    }
+    JsonObject root{nullptr};
+    if (!JsonObject::TryParse(*text, root) || !root) {
+        return std::nullopt;
+    }
+    Heartbeat beat;
+    beat.session = std::wstring(root.GetNamedString(L"session", L""));
+    beat.seq = static_cast<uint64_t>(root.GetNamedNumber(L"seq", 0));
+    beat.exiting = root.GetNamedString(L"state", L"") == L"exiting";
+    return beat;
 }
 
 std::shared_ptr<const Config> Current() {
