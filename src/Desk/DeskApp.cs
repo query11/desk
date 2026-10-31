@@ -356,7 +356,7 @@ internal sealed partial class DeskApp : ApplicationContext
         bool merge = maximized && _settings.MaximizeMode == MaximizeMode.Merge;
 
         var taskbarRules = enabled
-            ? _theme!.Compile(ThemeTarget.Taskbar, _lightMode, merge, _settings.Overrides)
+            ? _theme!.Compile(ThemeTarget.Taskbar, _lightMode, merge, Overrides)
             : [];
         var monitor = MonitorFor(enabled, merge);
         if (monitor.Enabled)
@@ -370,7 +370,7 @@ internal sealed partial class DeskApp : ApplicationContext
 
         bool startMenu = enabled && _settings.StyleStartMenu;
         var startRules = startMenu
-            ? _theme!.Compile(ThemeTarget.StartMenu, StartMenuLight, false, _settings.Overrides)
+            ? _theme!.Compile(ThemeTarget.StartMenu, StartMenuLight, false, Overrides)
             : [];
         string? requestedTheme = null;
         if (startMenu && _settings.StartMenuScheme != StartMenuScheme.System)
@@ -400,7 +400,7 @@ internal sealed partial class DeskApp : ApplicationContext
         }
 
         string Color(string name, string light, string dark) =>
-            _theme?.GetConstant(name, _lightMode, _settings.Overrides) ?? (_lightMode ? light : dark);
+            _theme?.GetConstant(name, _lightMode, Overrides) ?? (_lightMode ? light : dark);
 
         return new MonitorConfig(
             show,

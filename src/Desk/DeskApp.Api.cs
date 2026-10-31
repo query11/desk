@@ -160,50 +160,49 @@ internal sealed partial class DeskApp
 
     public bool HasParameter(string name) => _theme?.HasConstant(name) == true;
 
+    /// <summary>
+    /// The user's changes to the loaded theme. Kept per theme: switching to
+    /// another theme shows its own values, switching back restores these.
+    /// </summary>
+    private IReadOnlyDictionary<string, string> Overrides =>
+        _theme == null ? new Dictionary<string, string>() : _settings.OverridesFor(_theme.Id);
+
     /// <summary>A numeric theme constant as currently used (with the user's changes).</summary>
     public double? GetParameter(ParameterScope scope, string name)
     {
-        string? text = _theme?.GetConstant(name, IsLight(scope), _settings.Overrides);
+        string? text = _theme?.GetConstant(name, IsLight(scope), Overrides);
         return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
             ? value
             : null;
     }
 
     /// <summary>
-    /// Changes a theme constant. With <paramref name="perMode"/> the change
-    /// only applies to the current light or dark variant (colors need
-    /// different values in each).
+    /// Changes a constant of the loaded theme. With <paramref name="perMode"/>
+    /// the change only applies to the current light or dark variant (colors
+    /// need different values in each).
     /// </summary>
     public void SetParameter(ParameterScope scope, string name, double value, bool perMode)
     {
+        if (_theme == null)
+        {
+            return;
+        }
         string text = value.ToString("0.###", CultureInfo.InvariantCulture);
-        if (perMode)
-        {
-            _settings.Overrides[$"{name}@{(IsLight(scope) ? "light" : "dark")}"] = text;
-        }
-        else
-        {
-            _settings.Overrides.Remove($"{name}@light");
-            _settings.Overrides.Remove($"{name}@dark");
-            _settings.Overrides[name] = text;
-        }
+        _settings.SetOverride(_theme.Id, name, text, perMode ? IsLight(scope) : null);
         ApplySoon();
     }
 
     public bool HasChangedParameters(IEnumerable<string> names) =>
-        names.Any(n => _settings.Overrides.ContainsKey(n) ||
-                       _settings.Overrides.ContainsKey($"{n}@light") ||
-                       _settings.Overrides.ContainsKey($"{n}@dark"));
+        _theme != null && _settings.HasOverrides(_theme.Id, names);
 
-    /// <summary>Goes back to the theme's own values.</summary>
+    /// <summary>Goes back to the theme's own values for these constants, in this theme only.</summary>
     public void ResetParameters(IEnumerable<string> names)
     {
-        foreach (var name in names)
+        if (_theme == null)
         {
-            _settings.Overrides.Remove(name);
-            _settings.Overrides.Remove($"{name}@light");
-            _settings.Overrides.Remove($"{name}@dark");
+            return;
         }
+        _settings.ResetOverrides(_theme.Id, names);
         _settings.Save();
         Apply();
         StateChanged?.Invoke();
