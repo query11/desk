@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "core/apply_status.h"
+#include "core/clickthrough_gate.h"
 #include "core/host_watch.h"
 #include "core/init_policy.h"
 
@@ -46,6 +47,7 @@ struct Register {
     } while (false)
 
 using desk::core::ApplyResult;
+using desk::core::ClickThroughGate;
 using desk::core::HostWatch;
 using desk::core::InitPolicy;
 using desk::core::Summarize;
@@ -243,6 +245,40 @@ TEST(ApplyRestoreForTheSameSerialIsANewRevision) {
     threads[1] = {4, 300, 0, 0};
     summary = Summarize(threads, 4, 300, false);
     CHECK(summary.result == ApplyResult::Disabled);
+}
+
+// ------------------------------------------------------ ClickThroughGate
+
+TEST(ClickThroughOffPublishedBeforeAnElementArrives) {
+    // On and applied; then "off" is published; a new taskbar frame arrives
+    // before the thread re-applies; then the re-apply runs.
+    ClickThroughGate gate;
+    CHECK(gate.OnConfigApplied(true) == ClickThroughGate::Action::Apply);
+    CHECK(gate.EnabledForNewElement(false));  // Follows the applied state.
+    CHECK(gate.OnConfigApplied(false) == ClickThroughGate::Action::Clear);
+    CHECK(!gate.Enabled());
+}
+
+TEST(ClickThroughOnPublishedBeforeAnElementArrives) {
+    ClickThroughGate gate;
+    gate.OnConfigApplied(false);
+    CHECK(!gate.EnabledForNewElement(true));
+    CHECK(gate.OnConfigApplied(true) == ClickThroughGate::Action::Apply);
+}
+
+TEST(ClickThroughOffIsIdempotent) {
+    ClickThroughGate gate;
+    gate.OnConfigApplied(true);
+    CHECK(gate.OnConfigApplied(false) == ClickThroughGate::Action::Clear);
+    CHECK(gate.OnConfigApplied(false) == ClickThroughGate::Action::Clear);
+    CHECK(gate.OnConfigApplied(true) == ClickThroughGate::Action::Apply);
+}
+
+TEST(ClickThroughNewThreadUsesTheConfiguration) {
+    ClickThroughGate gate;
+    CHECK(gate.EnabledForNewElement(true));
+    CHECK(!gate.EnabledForNewElement(false));
+    CHECK(!gate.Enabled());
 }
 
 }  // namespace

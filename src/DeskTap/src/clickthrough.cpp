@@ -3,13 +3,21 @@
 // GPL-3.0).
 #include "pch.h"
 #include "clickthrough.h"
+#include "core/clickthrough_gate.h"
 #include "log.h"
+#include "status.h"
 #include "winutil.h"
 
 namespace desk::clickthrough {
 namespace {
 
+using winrt::Windows::System::DispatcherQueue;
+using winrt::Windows::System::DispatcherQueuePriority;
+
 constexpr UINT_PTR kSubclassId = 0x4445534C;
+
+// ---------------------------------------------------------- XAML threads
+// Everything here belongs to the XAML thread that reported the elements.
 
 struct IslandRoot {
     winrt::weak_ref<wuxh::DesktopWindowXamlSource> source;
@@ -23,19 +31,290 @@ struct TaskbarState {
     winrt::weak_ref<wux::FrameworkElement> systemTrayFrame;
     // Desk's own island with the system figures, outside the frames.
     winrt::weak_ref<wux::FrameworkElement> monitorIsland;
+    // The frame the layout handler is attached to; it moves to a new frame
+    // when the taskbar frame is replaced.
+    winrt::weak_ref<wux::FrameworkElement> layoutFrame;
     wux::FrameworkElement::LayoutUpdated_revoker layoutRevoker;
     std::vector<long long> lastSignature;
+
+    TaskbarState() = default;
+    TaskbarState(const TaskbarState&) = delete;
+    TaskbarState& operator=(const TaskbarState&) = delete;
+    ~TaskbarState() { Unsubscribe(); }
+
+    void Unsubscribe() {
+        if (layoutRevoker) {
+            layoutRevoker.revoke();
+            status::Count(status::kLayoutSubscriptionsReleased);
+        }
+        layoutFrame = nullptr;
+    }
 };
 
 thread_local std::list<IslandRoot> t_islands;
 thread_local std::list<TaskbarState> t_taskbars;
-// Bounding box of the region we applied, per top-level window. Explorer can
-// replace or clear the region (e.g. when toggling auto-hide), and this tells
-// whether the current region is still ours.
-thread_local std::unordered_map<HWND, RECT> t_appliedBoxes;
-thread_local std::unordered_set<HWND> t_subclassed;
-thread_local bool t_applying = false;
-thread_local bool t_enabled = false;
+thread_local core::ClickThroughGate t_gate;
+
+// ----------------------------------------------------------- all threads
+// The windows Desk clipped. A window's subclass procedure runs on the
+// window's thread, which needn't be the XAML thread that clipped it, so the
+// record says which thread owns it and how to reach it. Never held across
+// SetWindowRgn or SendMessage: those wait for the window's thread, which may
+// be waiting for this lock.
+
+struct RegionRecord {
+    HRGN applied = nullptr;  // A copy of the region Desk set.
+    DWORD ownerThread = 0;   // The XAML thread that set it.
+    DispatcherQueue ownerQueue{nullptr};
+    DWORD windowThread = 0;  // Tells a reused window handle apart.
+    bool applying = false;   // Desk is setting it right now.
+    bool reapplyQueued = false;
+};
+
+std::mutex g_mutex;
+std::unordered_map<HWND, RegionRecord> g_regions;
+std::unordered_set<HWND> g_subclassed;
+
+HRGN CopyRegion(HRGN region) {
+    HRGN copy = CreateRectRgn(0, 0, 0, 0);
+    if (copy && CombineRgn(copy, region, nullptr, RGN_COPY) == ERROR) {
+        DeleteObject(copy);
+        return nullptr;
+    }
+    return copy;
+}
+
+// Whether the window's current region is exactly the one Desk set: a region
+// with the same bounding box set by Explorer doesn't count.
+bool RegionIsOurs(HWND window, bool* hasRegion) {
+    HRGN current = CreateRectRgn(0, 0, 0, 0);
+    if (!current) {
+        *hasRegion = false;
+        return false;
+    }
+    *hasRegion = GetWindowRgn(window, current) != ERROR;
+    bool ours = false;
+    if (*hasRegion) {
+        std::lock_guard lock(g_mutex);
+        auto it = g_regions.find(window);
+        ours = it != g_regions.end() && it->second.applied &&
+               EqualRgn(current, it->second.applied);
+    }
+    DeleteObject(current);
+    return ours;
+}
+
+void ReapplyForTopLevel(HWND topLevel);
+
+// The window moved or Explorer reset its region (auto-hide, a display
+// change): the XAML thread that owns the record checks it again.
+void RequestReapply(HWND window) {
+    DispatcherQueue queue{nullptr};
+    bool here = false;
+    {
+        std::lock_guard lock(g_mutex);
+        auto it = g_regions.find(window);
+        if (it == g_regions.end() || it->second.applying || it->second.reapplyQueued) {
+            return;
+        }
+        if (it->second.ownerThread == GetCurrentThreadId()) {
+            here = true;
+        } else {
+            queue = it->second.ownerQueue;
+            it->second.reapplyQueued = queue != nullptr;
+        }
+    }
+    if (here) {
+        ReapplyForTopLevel(window);
+        return;
+    }
+    if (!queue) {
+        return;
+    }
+    bool queued = false;
+    try {
+        queued = queue.TryEnqueue(DispatcherQueuePriority::Normal, [window] {
+            {
+                std::lock_guard lock(g_mutex);
+                if (auto it = g_regions.find(window); it != g_regions.end()) {
+                    it->second.reapplyQueued = false;
+                }
+            }
+            try {
+                ReapplyForTopLevel(window);
+            } catch (...) {
+            }
+        });
+    } catch (...) {
+    }
+    if (!queued) {
+        // The owner's dispatcher is shutting down.
+        status::Count(status::kDispatcherPostFailures);
+        std::lock_guard lock(g_mutex);
+        if (auto it = g_regions.find(window); it != g_regions.end()) {
+            it->second.reapplyQueued = false;
+        }
+    }
+}
+
+void Forget(HWND window) {
+    std::lock_guard lock(g_mutex);
+    if (auto it = g_regions.find(window); it != g_regions.end()) {
+        if (it->second.applied) {
+            DeleteObject(it->second.applied);
+        }
+        g_regions.erase(it);
+    }
+    if (g_subclassed.erase(window)) {
+        status::Count(status::kSubclassesReleased);
+    }
+}
+
+LRESULT CALLBACK SubclassProc(HWND window,
+                              UINT message,
+                              WPARAM wParam,
+                              LPARAM lParam,
+                              UINT_PTR,
+                              DWORD_PTR) {
+    switch (message) {
+        case WM_WINDOWPOSCHANGED: {
+            // Explorer resets the region when the taskbar is shown or
+            // auto-hide is toggled.
+            LRESULT result = DefSubclassProc(window, message, wParam, lParam);
+            try {
+                RequestReapply(window);
+            } catch (...) {
+            }
+            return result;
+        }
+        case WM_NCDESTROY:
+            Forget(window);
+            RemoveWindowSubclass(window, SubclassProc, kSubclassId);
+            break;
+    }
+    return DefSubclassProc(window, message, wParam, lParam);
+}
+
+void EnsureSubclass(TaskbarState& state) {
+    if (!state.islandHwnd) {
+        return;
+    }
+    HWND topLevel = GetAncestor(state.islandHwnd, GA_ROOT);
+    if (!topLevel || !winutil::IsTaskbarWindow(topLevel)) {
+        return;
+    }
+    {
+        std::lock_guard lock(g_mutex);
+        if (g_subclassed.contains(topLevel)) {
+            return;
+        }
+    }
+    if (winutil::SetWindowSubclassFromAnyThread(topLevel, SubclassProc, kSubclassId)) {
+        std::lock_guard lock(g_mutex);
+        if (g_subclassed.insert(topLevel).second) {
+            status::Count(status::kSubclasses);
+        }
+    }
+}
+
+// Sets the region and records it as Desk's. Takes ownership of `region`.
+void SetRegion(HWND topLevel, HRGN region) {
+    HRGN copy = CopyRegion(region);
+    if (!copy) {
+        DeleteObject(region);
+        return;
+    }
+    DWORD windowThread = GetWindowThreadProcessId(topLevel, nullptr);
+    bool created = false;
+    {
+        std::lock_guard lock(g_mutex);
+        auto [it, inserted] = g_regions.try_emplace(topLevel);
+        created = inserted;
+        auto& record = it->second;
+        if (inserted || record.ownerThread != GetCurrentThreadId()) {
+            record.ownerThread = GetCurrentThreadId();
+            record.ownerQueue = DispatcherQueue::GetForCurrentThread();
+        }
+        record.windowThread = windowThread;
+        record.applying = true;
+    }
+
+    // Owns the region on success, and synchronously sends
+    // WM_WINDOWPOSCHANGED, which the subclass ignores while `applying`.
+    BOOL ok = SetWindowRgn(topLevel, region, TRUE);
+
+    std::lock_guard lock(g_mutex);
+    auto it = g_regions.find(topLevel);
+    if (it == g_regions.end()) {
+        // Destroyed meanwhile.
+        DeleteObject(copy);
+        return;
+    }
+    it->second.applying = false;
+    if (ok) {
+        if (it->second.applied) {
+            DeleteObject(it->second.applied);
+        }
+        it->second.applied = copy;
+        if (created) {
+            status::Count(status::kRegionsSet);
+        }
+    } else {
+        DeleteObject(copy);
+        DeleteObject(region);
+        if (created) {
+            g_regions.erase(it);
+        }
+    }
+}
+
+// Removes the regions this thread set, where they are still exactly Desk's.
+// A window that is gone, whose handle now belongs to another window, or
+// whose region somebody else replaced is left alone.
+void ClearOwnedRegions() {
+    std::vector<std::pair<HWND, RegionRecord>> owned;
+    {
+        std::lock_guard lock(g_mutex);
+        for (auto it = g_regions.begin(); it != g_regions.end();) {
+            if (it->second.ownerThread == GetCurrentThreadId() && !it->second.applying) {
+                owned.emplace_back(it->first, std::move(it->second));
+                it = g_regions.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    for (auto& [window, record] : owned) {
+        bool clear = IsWindow(window) && winutil::IsTaskbarWindow(window) &&
+                     GetWindowThreadProcessId(window, nullptr) == record.windowThread;
+        if (clear) {
+            HRGN current = CreateRectRgn(0, 0, 0, 0);
+            clear = current && GetWindowRgn(window, current) != ERROR &&
+                    EqualRgn(current, record.applied);
+            if (current) {
+                DeleteObject(current);
+            }
+        }
+        if (clear) {
+            // No record any more, so the subclass ignores the resulting
+            // WM_WINDOWPOSCHANGED.
+            SetWindowRgn(window, nullptr, TRUE);
+            status::Count(status::kRegionsCleared);
+        }
+        if (record.applied) {
+            DeleteObject(record.applied);
+        }
+    }
+    for (auto& state : t_taskbars) {
+        state.lastSignature.clear();
+    }
+    if (!owned.empty()) {
+        DLOG(L"Click-through regions cleared for %zu windows", owned.size());
+    }
+}
+
+// ----------------------------------------------------------- the regions
 
 long long Quantize(double value) {
     if (value < 0 || std::isnan(value)) {
@@ -48,6 +327,7 @@ TaskbarState* FindState(wux::XamlRoot const& root, bool create) {
     if (!root) {
         return nullptr;
     }
+    // A removed display takes its root with it.
     t_taskbars.remove_if(
         [](const TaskbarState& state) { return !state.xamlRoot.get(); });
     for (auto& state : t_taskbars) {
@@ -96,9 +376,20 @@ void Update(TaskbarState& state) {
     if (!root) {
         return;
     }
+    if (root != state.xamlRoot.get()) {
+        // The frame moved to another root (display); that root's state
+        // takes it over.
+        state.taskbarFrame = nullptr;
+        state.Unsubscribe();
+        return;
+    }
 
     // A new island reports its root before its content is attached, so the
-    // window is resolved lazily.
+    // window is resolved lazily (and again if it was destroyed).
+    if (state.islandHwnd && !IsWindow(state.islandHwnd)) {
+        state.islandHwnd = nullptr;
+        state.lastSignature.clear();
+    }
     if (!state.islandHwnd) {
         state.islandHwnd = ResolveIslandHwnd(root);
     }
@@ -170,18 +461,17 @@ void Update(TaskbarState& state) {
     int width = windowRect.right - windowRect.left;
     int height = windowRect.bottom - windowRect.top;
 
-    RECT currentBox;
-    bool hasRegion = GetWindowRgnBox(topLevel, &currentBox) != ERROR;
-    auto applied = t_appliedBoxes.find(topLevel);
-    bool regionIsOurs = hasRegion && applied != t_appliedBoxes.end() &&
-                        EqualRect(&currentBox, &applied->second);
+    bool hasRegion = false;
+    bool regionIsOurs = RegionIsOurs(topLevel, &hasRegion);
 
     // Explorer clips the window itself in some modes (e.g. the collapsed
     // tablet taskbar). Only take over when there's no region or a full-window
     // one.
     if (hasRegion && !regionIsOurs) {
+        RECT currentBox;
         RECT full = {0, 0, width, height};
-        if (!EqualRect(&currentBox, &full)) {
+        if (GetWindowRgnBox(topLevel, &currentBox) == ERROR ||
+            !EqualRect(&currentBox, &full)) {
             return;
         }
     }
@@ -215,25 +505,15 @@ void Update(TaskbarState& state) {
                 CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom)) {
             CombineRgn(region, region, extraRegion, RGN_OR);
             DeleteObject(extraRegion);
-            UnionRect(&box, &box, &rect);
         }
     }
 
-    // SetWindowRgn owns the region on success and synchronously sends
-    // WM_WINDOWPOSCHANGED, which the subclass must ignore.
-    t_applying = true;
-    BOOL ok = SetWindowRgn(topLevel, region, TRUE);
-    t_applying = false;
-    if (ok) {
-        state.lastSignature = std::move(signature);
-        t_appliedBoxes[topLevel] = box;
-    } else {
-        DeleteObject(region);
-    }
+    SetRegion(topLevel, region);
+    state.lastSignature = std::move(signature);
 }
 
 void ReapplyForTopLevel(HWND topLevel) {
-    if (!t_enabled) {
+    if (!t_gate.Enabled()) {
         return;
     }
     for (auto& state : t_taskbars) {
@@ -244,66 +524,6 @@ void ReapplyForTopLevel(HWND topLevel) {
             } catch (...) {
             }
         }
-    }
-}
-
-LRESULT CALLBACK SubclassProc(HWND window,
-                              UINT message,
-                              WPARAM wParam,
-                              LPARAM lParam,
-                              UINT_PTR,
-                              DWORD_PTR) {
-    switch (message) {
-        case WM_WINDOWPOSCHANGED: {
-            // Explorer resets the region when the taskbar is shown or
-            // auto-hide is toggled.
-            LRESULT result = DefSubclassProc(window, message, wParam, lParam);
-            if (!t_applying) {
-                ReapplyForTopLevel(window);
-            }
-            return result;
-        }
-        case WM_NCDESTROY:
-            t_subclassed.erase(window);
-            t_appliedBoxes.erase(window);
-            RemoveWindowSubclass(window, SubclassProc, kSubclassId);
-            break;
-    }
-    return DefSubclassProc(window, message, wParam, lParam);
-}
-
-void EnsureSubclass(TaskbarState& state) {
-    if (!state.islandHwnd) {
-        return;
-    }
-    HWND topLevel = GetAncestor(state.islandHwnd, GA_ROOT);
-    if (!topLevel || !winutil::IsTaskbarWindow(topLevel) ||
-        t_subclassed.contains(topLevel)) {
-        return;
-    }
-    if (winutil::SetWindowSubclassFromAnyThread(topLevel, SubclassProc,
-                                                kSubclassId)) {
-        t_subclassed.insert(topLevel);
-    }
-}
-
-void ClearRegions() {
-    for (const auto& [window, box] : t_appliedBoxes) {
-        if (!winutil::IsTaskbarWindow(window)) {
-            continue;
-        }
-        RECT current;
-        if (GetWindowRgnBox(window, &current) == ERROR ||
-            !EqualRect(&current, &box)) {
-            continue;
-        }
-        t_applying = true;
-        SetWindowRgn(window, nullptr, TRUE);
-        t_applying = false;
-    }
-    t_appliedBoxes.clear();
-    for (auto& state : t_taskbars) {
-        state.lastSignature.clear();
     }
 }
 
@@ -327,7 +547,7 @@ void OnIslandRoot(wf::IInspectable const& inspectable) {
     t_islands.push_back({winrt::make_weak(source), hwnd});
 }
 
-void OnElementAdded(wux::FrameworkElement const& element, bool enabled) {
+void OnElementAdded(wux::FrameworkElement const& element, bool configured) {
     auto className = winrt::get_class_name(element);
     bool isTaskbarFrame = className == L"Taskbar.TaskbarFrame";
     bool isTrayFrame = className == L"SystemTray.SystemTrayFrame";
@@ -337,7 +557,9 @@ void OnElementAdded(wux::FrameworkElement const& element, bool enabled) {
         return;
     }
 
-    t_enabled = enabled;
+    // What this thread applied last, not the newest configuration (see
+    // core/clickthrough_gate.h).
+    bool enabled = t_gate.EnabledForNewElement(configured);
 
     wux::XamlRoot root{nullptr};
     try {
@@ -351,31 +573,35 @@ void OnElementAdded(wux::FrameworkElement const& element, bool enabled) {
 
     if (isTaskbarFrame) {
         state->taskbarFrame = winrt::make_weak(element);
+        // A replaced frame: follow the new one's layout, not the old one's.
+        // The same frame reported again keeps its handler.
+        if (state->layoutFrame.get() != element) {
+            state->Unsubscribe();
+            state->layoutFrame = winrt::make_weak(element);
+            auto weakRoot = winrt::make_weak(root);
+            // The taskbar frame's layout passes cover tray changes too.
+            state->layoutRevoker = element.LayoutUpdated(
+                winrt::auto_revoke, [weakRoot](auto&&, auto&&) {
+                    if (!t_gate.Enabled()) {
+                        return;
+                    }
+                    try {
+                        if (auto* state = FindState(weakRoot.get(), false)) {
+                            Update(*state);
+                            EnsureSubclass(*state);
+                        }
+                    } catch (...) {
+                    }
+                });
+            status::Count(status::kLayoutSubscriptions);
+        }
     } else if (isTrayFrame) {
         state->systemTrayFrame = winrt::make_weak(element);
     } else {
         state->monitorIsland = winrt::make_weak(element);
     }
 
-    // The taskbar frame's layout passes cover tray changes too.
-    if (isTaskbarFrame && !state->layoutRevoker) {
-        auto weakRoot = winrt::make_weak(root);
-        state->layoutRevoker = element.LayoutUpdated(
-            winrt::auto_revoke, [weakRoot](auto&&, auto&&) {
-                if (!t_enabled) {
-                    return;
-                }
-                try {
-                    if (auto* state = FindState(weakRoot.get(), false)) {
-                        Update(*state);
-                        EnsureSubclass(*state);
-                    }
-                } catch (...) {
-                }
-            });
-    }
-
-    if (t_enabled) {
+    if (enabled) {
         try {
             Update(*state);
             EnsureSubclass(*state);
@@ -385,9 +611,7 @@ void OnElementAdded(wux::FrameworkElement const& element, bool enabled) {
 }
 
 void OnConfigApplied(bool enabled) {
-    bool wasEnabled = t_enabled;
-    t_enabled = enabled;
-    if (enabled) {
+    if (t_gate.OnConfigApplied(enabled) == core::ClickThroughGate::Action::Apply) {
         for (auto& state : t_taskbars) {
             state.lastSignature.clear();
             try {
@@ -397,10 +621,19 @@ void OnConfigApplied(bool enabled) {
             }
         }
         DLOG(L"Click-through enabled for %zu taskbars", t_taskbars.size());
-    } else if (wasEnabled) {
-        ClearRegions();
-        DLOG(L"Click-through disabled");
+        return;
     }
+    // Every time, not only when it was on: whatever this thread clipped goes.
+    ClearOwnedRegions();
+}
+
+void OnThreadShutdown() {
+    try {
+        ClearOwnedRegions();
+    } catch (...) {
+    }
+    t_taskbars.clear();
+    t_islands.clear();
 }
 
 }  // namespace desk::clickthrough
