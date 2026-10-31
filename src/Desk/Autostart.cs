@@ -1,10 +1,119 @@
-using System.Diagnostics;
-using System.Security;
-using System.Security.Principal;
-using System.Text;
-using Microsoft.Win32;
-
 namespace Desk;
+
+/// <summary>Whether a source was found, is absent, or couldn't be checked.</summary>
+internal enum Presence
+{
+    Missing,
+    Present,
+    Unknown,
+}
+
+/// <summary>The scheduled task as found: whether it's enabled and which program it starts.</summary>
+internal sealed record TaskInfo(Presence Presence, bool Enabled = false, string? Command = null, string? Error = null)
+{
+    public static TaskInfo Missing { get; } = new(Presence.Missing);
+}
+
+/// <summary>The Run key value as found.</summary>
+internal sealed record RunKeyInfo(Presence Presence, string? Command = null, string? Error = null)
+{
+    public static RunKeyInfo Missing { get; } = new(Presence.Missing);
+}
+
+/// <summary>The outcome of one system change, with the reason when it failed.</summary>
+internal sealed record Outcome(bool Ok, string? Error = null)
+{
+    public static Outcome Success { get; } = new(true);
+
+    public static Outcome Failure(string error) => new(false, error);
+}
+
+/// <summary>Where autostart comes from: the scheduled task, or the Run key fallback.</summary>
+internal interface IAutostartBackend
+{
+    /// <summary>The Desk.exe autostart should start.</summary>
+    string ExePath { get; }
+
+    TaskInfo QueryTask();
+
+    Outcome CreateTask();
+
+    Outcome DeleteTask();
+
+    RunKeyInfo QueryRunKey();
+
+    Outcome WriteRunKey();
+
+    Outcome DeleteRunKey();
+
+    /// <summary>Whether a command (as found in a source) starts <see cref="ExePath"/>.</summary>
+    bool StartsThisExe(string command);
+}
+
+internal enum AutostartState
+{
+    /// <summary>A working source starts this Desk.exe at sign-in.</summary>
+    On,
+
+    /// <summary>Nothing starts Desk at sign-in.</summary>
+    Off,
+
+    /// <summary>A source exists but doesn't work: disabled, or another Desk.exe.</summary>
+    Inactive,
+
+    /// <summary>It couldn't be checked.</summary>
+    Unknown,
+}
+
+internal enum AutostartSource
+{
+    Task,
+    RunKey,
+}
+
+/// <summary>What was actually found, with a reason for anything other than plainly on or off.</summary>
+internal sealed record AutostartStatus(AutostartState State, AutostartSource? Source = null, string? Detail = null)
+{
+    public static AutostartStatus Unchecked { get; } = new(AutostartState.Unknown, Detail: "还没有检查");
+
+    /// <summary>The task and the Run key, judged together.</summary>
+    public static AutostartStatus From(TaskInfo task, RunKeyInfo runKey, Func<string, bool> startsThisExe)
+    {
+        bool taskWorks = task is { Presence: Presence.Present, Enabled: true, Command: { } taskCommand } &&
+                         startsThisExe(taskCommand);
+        if (taskWorks)
+        {
+            return new AutostartStatus(AutostartState.On, AutostartSource.Task);
+        }
+        bool runKeyWorks = runKey is { Presence: Presence.Present, Command: { } runCommand } &&
+                           startsThisExe(runCommand);
+        if (runKeyWorks)
+        {
+            return new AutostartStatus(AutostartState.On, AutostartSource.RunKey);
+        }
+
+        if (task.Presence == Presence.Unknown || runKey.Presence == Presence.Unknown)
+        {
+            var errors = new[] { task.Error, runKey.Error }.Where(e => e != null);
+            return new AutostartStatus(AutostartState.Unknown, Detail: "无法确认：" + string.Join("；", errors));
+        }
+        if (task.Presence == Presence.Present)
+        {
+            return new AutostartStatus(AutostartState.Inactive, AutostartSource.Task,
+                !task.Enabled ? "计划任务已被禁用" : "计划任务指向其他位置的 Desk.exe");
+        }
+        if (runKey.Presence == Presence.Present)
+        {
+            return new AutostartStatus(AutostartState.Inactive, AutostartSource.RunKey,
+                "注册表启动项指向其他位置的 Desk.exe");
+        }
+        return new AutostartStatus(AutostartState.Off);
+    }
+}
+
+/// <summary>The result of turning autostart on or off: the state found afterwards, and why it failed.</summary>
+internal sealed record AutostartResult(bool Success, AutostartStatus Status, string? Error, long Ticket,
+    bool Configured = false, string? Warning = null);
 
 /// <summary>
 /// Starts Desk when the user signs in. A scheduled task with a logon trigger
@@ -12,253 +121,205 @@ namespace Desk;
 /// only after a delay, so the task is preferred and the Run key is the
 /// fallback when the task can't be created.
 /// </summary>
-internal static class Autostart
+/// <remarks>
+/// Every change is checked by looking again: turning it on succeeds when a
+/// source that starts this Desk.exe is found afterwards (the task, or else
+/// the Run key); turning it off succeeds when neither source is left. A
+/// query that fails is "unknown", never "off". Calls are slow (schtasks.exe)
+/// and serialized; each result carries a ticket so the caller can drop one
+/// that finished before a newer one.
+/// </remarks>
+internal sealed class Autostart
 {
     public const string Argument = "--autostart";
 
-    private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string RunValue = "Desk";
+    private readonly IAutostartBackend _backend;
+    private readonly object _lock = new();
+    private long _ticket;
+    private bool _userChose;
 
-    private static readonly object Lock = new();
-
-    /// <summary>Last known state; refreshed by <see cref="Refresh"/>.</summary>
-    public static bool IsEnabled { get; private set; }
-
-    private static string ExePath => Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "Desk.exe");
-
-    private static string TaskName
+    public Autostart(IAutostartBackend backend)
     {
-        get
+        _backend = backend;
+    }
+
+    /// <summary>Looks at both sources without changing anything.</summary>
+    public AutostartStatus Check() =>
+        AutostartStatus.From(SafeQueryTask(), SafeQueryRunKey(), _backend.StartsThisExe);
+
+    /// <summary>A check that is ordered with the changes (for the settings window).</summary>
+    public AutostartResult Inspect()
+    {
+        lock (_lock)
         {
-            // Task names are global to the machine, so include the user.
-            var name = new StringBuilder();
-            foreach (char c in Environment.UserName)
-            {
-                name.Append("\\/:*?\"<>|".Contains(c) ? '_' : c);
-            }
-            return $"Desk Autostart ({name})";
+            return new AutostartResult(true, Check(), null, ++_ticket);
         }
     }
 
     /// <summary>
-    /// Makes sure autostart is set up the way it should be: on by default the
-    /// first time, pointing at this Desk.exe, and using the scheduled task.
-    /// Slow (starts schtasks.exe); call it off the UI thread. Updates the
-    /// autostart fields of the settings, which the caller saves.
+    /// The check at start-up: on by default the first time; kept pointing at
+    /// this Desk.exe and using the task when it is on. A task the user
+    /// disabled is their choice and left alone. Does nothing that a user's
+    /// choice made since start-up would contradict.
     /// </summary>
-    public static void Refresh(Settings settings)
+    public AutostartResult Refresh(bool configured)
     {
-        lock (Lock)
+        lock (_lock)
         {
-            bool task = TaskExists();
-            bool runKey = RunKeyExists();
-            IsEnabled = task || runKey;
-
-            if (!settings.AutostartConfigured)
+            long ticket = ++_ticket;
+            if (_userChose)
+            {
+                return new AutostartResult(true, Check(), null, ticket);
+            }
+            if (!configured)
             {
                 Log.Info("Turning on autostart (first run)");
-                EnableCore(settings);
-                settings.AutostartConfigured = true;
+                return EnableCore(ticket) with { Configured = true };
             }
-            else if (IsEnabled && (!task ||
-                                   !string.Equals(settings.AutostartPath, ExePath, StringComparison.OrdinalIgnoreCase)))
+
+            var task = SafeQueryTask();
+            var runKey = SafeQueryRunKey();
+            var status = AutostartStatus.From(task, runKey, _backend.StartsThisExe);
+            bool moved = (task.Presence == Presence.Present && task.Enabled && !Starts(task.Command)) ||
+                         (task.Presence == Presence.Missing && runKey.Presence == Presence.Present &&
+                          !Starts(runKey.Command));
+            bool fallbackOnly = status is { State: AutostartState.On, Source: AutostartSource.RunKey } &&
+                                task.Presence == Presence.Missing;
+            bool both = status is { State: AutostartState.On, Source: AutostartSource.Task } &&
+                        runKey.Presence == Presence.Present;
+            if (moved || fallbackOnly || both)
             {
-                // Desk.exe moved, or autostart still uses the Run key.
+                // Desk.exe moved, autostart still uses the Run key, or both
+                // would start it.
                 Log.Info("Updating autostart");
-                EnableCore(settings);
+                return EnableCore(ticket);
             }
+            return new AutostartResult(true, status, null, ticket);
         }
     }
 
-    /// <summary>Turns autostart on or off. Slow; call it off the UI thread, then save the settings.</summary>
-    public static void Set(Settings settings, bool enabled)
+    /// <summary>Turns autostart on or off as the user asked, and checks the result.</summary>
+    public AutostartResult Set(bool enabled)
     {
-        lock (Lock)
+        lock (_lock)
         {
-            if (enabled)
-            {
-                EnableCore(settings);
-            }
-            else
-            {
-                RunSchtasks("/Delete", "/TN", TaskName, "/F");
-                DeleteRunKey();
-                IsEnabled = false;
-                Log.Info("Autostart turned off");
-            }
-            settings.AutostartConfigured = true;
+            _userChose = true;
+            long ticket = ++_ticket;
+            var result = enabled ? EnableCore(ticket) : DisableCore(ticket);
+            return result with { Configured = true };
         }
     }
 
-    private static void EnableCore(Settings settings)
+    private AutostartResult EnableCore(long ticket)
     {
-        if (CreateTask())
+        var created = Safe(_backend.CreateTask);
+        var task = SafeQueryTask();
+        if (created.Ok && task.Presence == Presence.Present && task.Enabled && Starts(task.Command))
         {
-            DeleteRunKey();
-            Log.Info($"Autostart: scheduled task '{TaskName}'");
+            var removed = Safe(_backend.DeleteRunKey);
+            var status = AutostartStatus.From(task, SafeQueryRunKey(), _backend.StartsThisExe);
+            Log.Info("Autostart on: scheduled task");
+            return new AutostartResult(true, status, null, ticket,
+                Warning: removed.Ok ? null : $"旧的注册表启动项没能删除（{removed.Error}）");
         }
-        else
+
+        string taskError = created.Ok
+            ? task.Presence == Presence.Unknown ? $"计划任务无法确认（{task.Error}）" : "计划任务创建后没有找到可用的任务"
+            : $"计划任务没能创建（{created.Error}）";
+        Log.Warn($"Autostart: {taskError}; using the Run key");
+
+        var written = Safe(_backend.WriteRunKey);
+        var runKey = SafeQueryRunKey();
+        var final = AutostartStatus.From(task, runKey, _backend.StartsThisExe);
+        if (written.Ok && final.State == AutostartState.On)
         {
-            WriteRunKey();
-            Log.Warn("Autostart: the scheduled task could not be created, using the Run key");
+            Log.Info($"Autostart on: {final.Source}");
+            return new AutostartResult(true, final, null, ticket, Warning: taskError);
         }
-        settings.AutostartPath = ExePath;
-        IsEnabled = true;
+
+        string error = written.Ok
+            ? $"{taskError}；注册表启动项写入后没有找到"
+            : $"{taskError}；注册表启动项也没能写入（{written.Error}）";
+        Log.Warn($"Autostart could not be turned on: {error}");
+        return new AutostartResult(false, final, error, ticket);
     }
 
-    private static bool TaskExists() => RunSchtasks("/Query", "/TN", TaskName) == 0;
-
-    private static bool CreateTask()
+    private AutostartResult DisableCore(long ticket)
     {
-        string file = Path.Combine(Path.GetTempPath(), $"desk-autostart-{Environment.ProcessId}.xml");
-        try
+        var errors = new List<string>();
+        var task = SafeQueryTask();
+        if (task.Presence != Presence.Missing)
         {
-            File.WriteAllText(file, TaskXml(), Encoding.Unicode);
-            return RunSchtasks("/Create", "/TN", TaskName, "/XML", file, "/F") == 0;
-        }
-        catch (Exception e)
-        {
-            Log.Warn($"Could not create the autostart task: {e.Message}");
-            return false;
-        }
-        finally
-        {
-            try
+            var deleted = Safe(_backend.DeleteTask);
+            if (!deleted.Ok)
             {
-                File.Delete(file);
-            }
-            catch
-            {
+                errors.Add($"计划任务没能删除（{deleted.Error}）");
             }
         }
+        var removed = Safe(_backend.DeleteRunKey);
+        if (!removed.Ok)
+        {
+            errors.Add($"注册表启动项没能删除（{removed.Error}）");
+        }
+
+        task = SafeQueryTask();
+        var runKey = SafeQueryRunKey();
+        var status = AutostartStatus.From(task, runKey, _backend.StartsThisExe);
+        bool gone = task.Presence == Presence.Missing && runKey.Presence == Presence.Missing;
+        if (gone)
+        {
+            Log.Info("Autostart off");
+            return new AutostartResult(true, status, null, ticket);
+        }
+
+        if (task.Presence != Presence.Missing && errors.Count == 0)
+        {
+            errors.Add(task.Presence == Presence.Unknown ? $"计划任务无法确认（{task.Error}）" : "计划任务仍然存在");
+        }
+        if (runKey.Presence != Presence.Missing && !errors.Any(e => e.StartsWith("注册表")))
+        {
+            errors.Add(runKey.Presence == Presence.Unknown ? $"注册表启动项无法确认（{runKey.Error}）" : "注册表启动项仍然存在");
+        }
+        string error = string.Join("；", errors);
+        Log.Warn($"Autostart could not be turned off: {error}");
+        return new AutostartResult(false, status, error, ticket);
     }
 
-    private static string TaskXml()
-    {
-        using var identity = WindowsIdentity.GetCurrent();
-        string user = SecurityElement.Escape(identity.Name);
-        string sid = SecurityElement.Escape(identity.User?.Value ?? identity.Name);
-        string command = SecurityElement.Escape($"\"{ExePath}\"");
-        string directory = SecurityElement.Escape(Path.GetDirectoryName(ExePath) ?? AppContext.BaseDirectory);
+    private bool Starts(string? command) => command != null && _backend.StartsThisExe(command);
 
-        // Priority 4 is normal priority; tasks default to below normal.
-        return $"""
-            <?xml version="1.0" encoding="UTF-16"?>
-            <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-              <RegistrationInfo>
-                <Author>Desk</Author>
-                <Description>Starts Desk when you sign in.</Description>
-              </RegistrationInfo>
-              <Triggers>
-                <LogonTrigger>
-                  <Enabled>true</Enabled>
-                  <UserId>{user}</UserId>
-                </LogonTrigger>
-              </Triggers>
-              <Principals>
-                <Principal id="Author">
-                  <UserId>{sid}</UserId>
-                  <LogonType>InteractiveToken</LogonType>
-                  <RunLevel>LeastPrivilege</RunLevel>
-                </Principal>
-              </Principals>
-              <Settings>
-                <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-                <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-                <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-                <AllowHardTerminate>true</AllowHardTerminate>
-                <StartWhenAvailable>false</StartWhenAvailable>
-                <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
-                <IdleSettings>
-                  <StopOnIdleEnd>false</StopOnIdleEnd>
-                  <RestartOnIdle>false</RestartOnIdle>
-                </IdleSettings>
-                <AllowStartOnDemand>true</AllowStartOnDemand>
-                <Enabled>true</Enabled>
-                <Hidden>false</Hidden>
-                <RunOnlyIfIdle>false</RunOnlyIfIdle>
-                <WakeToRun>false</WakeToRun>
-                <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-                <Priority>4</Priority>
-              </Settings>
-              <Actions Context="Author">
-                <Exec>
-                  <Command>{command}</Command>
-                  <Arguments>{Argument}</Arguments>
-                  <WorkingDirectory>{directory}</WorkingDirectory>
-                </Exec>
-              </Actions>
-            </Task>
-            """;
-    }
-
-    private static int RunSchtasks(params string[] arguments)
+    private TaskInfo SafeQueryTask()
     {
         try
         {
-            var info = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "schtasks.exe"))
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-            foreach (var argument in arguments)
-            {
-                info.ArgumentList.Add(argument);
-            }
-            using var process = Process.Start(info);
-            if (process == null)
-            {
-                return -1;
-            }
-            // Drain the output so that schtasks can't block on a full pipe.
-            var output = process.StandardOutput.ReadToEndAsync();
-            var error = process.StandardError.ReadToEndAsync();
-            if (!process.WaitForExit(15000))
-            {
-                process.Kill();
-                return -1;
-            }
-            Task.WaitAll(output, error);
-            return process.ExitCode;
+            return _backend.QueryTask();
         }
         catch (Exception e)
         {
-            Log.Warn($"schtasks {arguments.FirstOrDefault()} failed: {e.Message}");
-            return -1;
+            return new TaskInfo(Presence.Unknown, Error: e.Message);
         }
     }
 
-    private static bool RunKeyExists()
-    {
-        using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-        return key?.GetValue(RunValue) is string;
-    }
-
-    private static void WriteRunKey()
+    private RunKeyInfo SafeQueryRunKey()
     {
         try
         {
-            using var key = Registry.CurrentUser.CreateSubKey(RunKey);
-            key.SetValue(RunValue, $"\"{ExePath}\" {Argument}");
+            return _backend.QueryRunKey();
         }
         catch (Exception e)
         {
-            Log.Warn($"Could not write the Run key: {e.Message}");
+            return new RunKeyInfo(Presence.Unknown, Error: e.Message);
         }
     }
 
-    private static void DeleteRunKey()
+    private static Outcome Safe(Func<Outcome> operation)
     {
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
-            key?.DeleteValue(RunValue, throwOnMissingValue: false);
+            return operation();
         }
         catch (Exception e)
         {
-            Log.Warn($"Could not remove the Run key: {e.Message}");
+            return Outcome.Failure(e.Message);
         }
     }
 }

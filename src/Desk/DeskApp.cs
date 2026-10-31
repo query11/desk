@@ -21,6 +21,7 @@ internal sealed partial class DeskApp : ApplicationContext
     private readonly WindowMonitor _windows;
     private readonly AutoHideController _autoHide = new(new WindowsAppBarState());
     private readonly HostSession _host = HostSession.ForCurrentProcess();
+    private readonly Autostart _autostart = new(new WindowsAutostartBackend());
     private readonly RuntimeWriter _runtime = new();
     private readonly EngineStatusReader _engineReports = new(Paths.StateDir);
     private readonly TargetManager? _targets;
@@ -188,11 +189,13 @@ internal sealed partial class DeskApp : ApplicationContext
         }
 
         // Slow checks, off the UI thread and after the engine got its turn.
+        bool autostartConfigured = _settings.AutostartConfigured;
         Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ =>
         {
+            AutostartResult? autostart = null;
             try
             {
-                Autostart.Refresh(_settings);
+                autostart = _autostart.Refresh(autostartConfigured);
             }
             catch (Exception e)
             {
@@ -201,7 +204,10 @@ internal sealed partial class DeskApp : ApplicationContext
             var conflicts = FindConflicts();
             RunOnUi(() =>
             {
-                _settings.Save();
+                if (autostart != null)
+                {
+                    ApplyAutostart(autostart);
+                }
                 Conflicts = conflicts;
                 if (conflicts.Count > 0)
                 {

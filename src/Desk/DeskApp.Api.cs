@@ -115,16 +115,79 @@ internal sealed partial class DeskApp
         set => ChangeSetting(() => _settings.MonitorMemory = value);
     }
 
-    public bool AutostartEnabled => Autostart.IsEnabled;
+    /// <summary>What was found the last time autostart was checked or changed.</summary>
+    public AutostartStatus AutostartInfo { get; private set; } = AutostartStatus.Unchecked;
 
-    /// <summary>Turns autostart on or off in the background (it starts schtasks.exe).</summary>
-    public Task SetAutostartAsync(bool enabled) =>
-        Task.Run(() => Autostart.Set(_settings, enabled))
-            .ContinueWith(_ => RunOnUi(() =>
+    /// <summary>Why the last change failed, or a warning about it; null when there is nothing to say.</summary>
+    public string? AutostartMessage { get; private set; }
+
+    public bool AutostartMessageIsError { get; private set; }
+
+    /// <summary>
+    /// Turns autostart on or off in the background (it starts schtasks.exe)
+    /// and reports what is actually set up afterwards.
+    /// </summary>
+    public async Task<AutostartResult> SetAutostartAsync(bool enabled)
+    {
+        // A user's choice; the start-up check won't change it any more.
+        _settings.AutostartConfigured = true;
+        AutostartResult result;
+        try
+        {
+            result = await Task.Run(() => _autostart.Set(enabled));
+        }
+        catch (Exception e)
+        {
+            Log.Error("Changing autostart failed", e);
+            AutostartMessage = e.Message;
+            AutostartMessageIsError = true;
+            StateChanged?.Invoke();
+            throw;
+        }
+        ApplyAutostart(result);
+        return result;
+    }
+
+    private long _autostartTicket;
+
+    /// <summary>Looks at what is set up now, in the background (the settings page shows it).</summary>
+    public void CheckAutostart()
+    {
+        Task.Run(_autostart.Inspect).ContinueWith(task =>
+        {
+            if (task.IsCompletedSuccessfully)
             {
-                _settings.Save();
-                StateChanged?.Invoke();
-            }));
+                RunOnUi(() => ApplyAutostart(task.Result));
+            }
+            else
+            {
+                Log.Error("Checking autostart failed", task.Exception);
+            }
+        });
+    }
+
+    /// <summary>Takes a result on the UI thread, unless a newer one already arrived.</summary>
+    private void ApplyAutostart(AutostartResult result)
+    {
+        if (result.Ticket < _autostartTicket)
+        {
+            return;
+        }
+        _autostartTicket = result.Ticket;
+        AutostartInfo = result.Status;
+        AutostartMessage = result.Error ?? result.Warning;
+        AutostartMessageIsError = result.Error != null;
+        if (result.Configured)
+        {
+            _settings.AutostartConfigured = true;
+        }
+        if (result.Status.State == AutostartState.On)
+        {
+            _settings.AutostartPath = Environment.ProcessPath;
+        }
+        _settings.Save();
+        StateChanged?.Invoke();
+    }
 
     /// <summary>Whether the taskbar is styled, with the engine's own report as evidence.</summary>
     public TargetStatus Taskbar => _targets == null

@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <Compile Include="..\..\src\Desk\AutoHideController.cs" Link="Production\AutoHideController.cs" />
+    <Compile Include="..\..\src\Desk\Autostart.cs" Link="Production\Autostart.cs" />
+    <Compile Include="..\..\src\Desk\WindowsAutostartBackend.cs" Link="Production\WindowsAutostartBackend.cs" />
     <Compile Include="..\..\src\Desk\EmergencyRestore.cs" Link="Production\EmergencyRestore.cs" />
     <Compile Include="..\..\src\Desk\EngineStatus.cs" Link="Production\EngineStatus.cs" />
     <Compile Include="..\..\src\Desk\HostSession.cs" Link="Production\HostSession.cs" />

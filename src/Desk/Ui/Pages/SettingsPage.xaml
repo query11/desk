@@ -29,10 +29,20 @@
                         Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                         Text="登录 Windows 后立即在后台启动（不显示窗口），比普通的开机启动项更早生效。"
                         TextWrapping="Wrap" />
+                    <TextBlock
+                        x:Name="AutostartStateText"
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                        TextWrapping="Wrap" />
                 </StackPanel>
             </ui:CardControl.Header>
             <ui:ToggleSwitch x:Name="AutostartSwitch" />
         </ui:CardControl>
+        <ui:InfoBar
+            x:Name="AutostartInfoBar"
+            Margin="0,0,0,4"
+            IsClosable="True" />
         <ui:CardControl Margin="0,0,0,4">
             <ui:CardControl.Icon>
                 <ui:SymbolIcon Symbol="Keyboard24" />
