@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tests for the parts of Desk.exe that don't need a desktop: the injection
+    state machine, engine status, settings, themes, autostart decisions,
+    recovery and logging. They compile the production files themselves (no
+    copies), so they run on Linux as well as on the Windows build machine.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Desk.Tests</RootNamespace>
+    <!-- The production files call Windows APIs that the tests never reach. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\Desk\Log.cs" Link="Production\Log.cs" />
+    <Compile Include="..\..\src\Desk\Paths.cs" Link="Production\Paths.cs" />
+    <Compile Include="..\..\src\Desk\RestartGuard.cs" Link="Production\RestartGuard.cs" />
+    <Compile Include="..\..\src\Desk\TargetManager.cs" Link="Production\TargetManager.cs" />
+    <Compile Include="..\..\src\Desk\TargetPlatform.cs" Link="Production\TargetPlatform.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\themes\*.json" Link="themes\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+</Project>

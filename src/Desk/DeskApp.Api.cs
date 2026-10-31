@@ -126,44 +126,28 @@ internal sealed partial class DeskApp
                 StateChanged?.Invoke();
             }));
 
-    public EngineStatus TaskbarStatus
-    {
-        get
-        {
-            if (_targets == null)
-            {
-                return EngineStatus.Unavailable;
-            }
-            if (!_settings.Enabled)
-            {
-                return EngineStatus.Off;
-            }
-            return _targets.ExplorerInjected ? EngineStatus.Active : EngineStatus.Connecting;
-        }
-    }
+    public EngineStatus TaskbarStatus => _targets == null
+        ? EngineStatus.Unavailable
+        : !_settings.Enabled
+            ? EngineStatus.Off
+            : FromInjection(_targets.Explorer);
 
-    public EngineStatus StartMenuStatus
+    public EngineStatus StartMenuStatus => _targets == null
+        ? EngineStatus.Unavailable
+        : !_settings.Enabled || !_settings.StyleStartMenu
+            ? EngineStatus.Off
+            : FromInjection(_targets.StartMenu);
+
+    private static EngineStatus FromInjection(TargetSnapshot target) => target.Phase switch
     {
-        get
-        {
-            if (_targets == null)
-            {
-                return EngineStatus.Unavailable;
-            }
-            if (!_settings.Enabled || !_settings.StyleStartMenu)
-            {
-                return EngineStatus.Off;
-            }
-            if (_targets.StartMenuInjected)
-            {
-                return EngineStatus.Active;
-            }
-            return _targets.StartMenuPending ? EngineStatus.Waiting : EngineStatus.Connecting;
-        }
-    }
+        InjectionPhase.Loaded => EngineStatus.Active,
+        InjectionPhase.Waiting => EngineStatus.Waiting,
+        InjectionPhase.Failed => EngineStatus.Failed,
+        _ => EngineStatus.Connecting,
+    };
 
     /// <summary>Explorer still runs the engine of an older Desk version.</summary>
-    public bool ExplorerOutdated => _targets?.ExplorerOutdated == true;
+    public bool ExplorerOutdated => _targets?.Explorer.Outdated == true;
 
     public IReadOnlyList<ThemeInfo> GetThemes()
     {
@@ -272,7 +256,7 @@ internal sealed partial class DeskApp
 
     public void RestartExplorer()
     {
-        _restartRequestedAt = DateTime.UtcNow;
+        _restartGuard.RestartRequested(DateTime.UtcNow);
         _fastTicksUntil = DateTime.UtcNow.AddSeconds(60);
         try
         {

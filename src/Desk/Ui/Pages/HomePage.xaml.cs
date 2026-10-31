@@ -96,6 +96,7 @@ public partial class HomePage : Page
             EngineStatus.Active => (active, SymbolRegular.CheckmarkCircle24, "SystemFillColorSuccessBrush"),
             EngineStatus.Connecting => (connecting, SymbolRegular.ArrowSync24, "TextFillColorSecondaryBrush"),
             EngineStatus.Waiting => ("下次打开开始菜单时生效", SymbolRegular.Clock24, "TextFillColorSecondaryBrush"),
+            EngineStatus.Failed => ("连接失败，稍后自动重试", SymbolRegular.Warning24, "SystemFillColorCautionBrush"),
             EngineStatus.Off => ("已关闭", SymbolRegular.Circle24, "TextFillColorTertiaryBrush"),
             _ => ("无法使用", SymbolRegular.ErrorCircle24, "SystemFillColorCriticalBrush"),
         };

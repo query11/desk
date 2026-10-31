@@ -21,6 +21,9 @@ internal enum EngineStatus
     /// <summary>Loaded once the process wakes up (the Start menu is opened).</summary>
     Waiting,
 
+    /// <summary>Loading failed; retried automatically.</summary>
+    Failed,
+
     /// <summary>The engine can't run (missing DeskTap.dll, unsupported system).</summary>
     Unavailable,
 }
@@ -42,11 +45,12 @@ internal sealed partial class DeskApp : ApplicationContext
     private readonly RuntimeWriter _runtime = new();
     private readonly TargetManager? _targets;
     private readonly string? _engineError;
+    private readonly string? _dllPath;
     private readonly System.Windows.Forms.Timer _timer = new();
     private readonly System.Windows.Forms.Timer _themeReload = new() { Interval = 300 };
     private readonly System.Windows.Forms.Timer _applySoon = new() { Interval = 100 };
     private readonly List<FileSystemWatcher> _themeWatchers = [];
-    private readonly List<DateTime> _explorerRestarts = [];
+    private readonly RestartGuard _restartGuard = new();
     private readonly Icon _iconEnabled = TrayIcons.Create(true);
     private readonly Icon _iconDisabled = TrayIcons.Create(false);
     private readonly EventWaitHandle _showWindowEvent;
@@ -55,7 +59,6 @@ internal sealed partial class DeskApp : ApplicationContext
 
     private Theme? _theme;
     private bool _lightMode;
-    private DateTime _restartRequestedAt = DateTime.MinValue;
     private DateTime _fastTicksUntil;
     private (EngineStatus Taskbar, EngineStatus StartMenu, bool Outdated) _lastStatus;
     private bool _windowLoaded;
@@ -88,7 +91,15 @@ internal sealed partial class DeskApp : ApplicationContext
                 throw new PlatformNotSupportedException("ARM64 Windows is not supported yet");
             }
             var injector = TapInjector.Deploy();
-            _targets = new TargetManager(injector, SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext());
+            _dllPath = injector.DllPath;
+            var ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            // The intent is read when an attempt would start, so that a
+            // change made by an event in the same tick (crash protection)
+            // counts right away.
+            _targets = new TargetManager(new WindowsTargetPlatform(injector), new ThreadPoolScheduler(ui),
+                TimeProvider.System, injector.DllPath,
+                explorerWanted: () => !_exiting && _settings.Enabled,
+                startMenuWanted: () => !_exiting && _settings.Enabled && _settings.StyleStartMenu);
             _targets.ExplorerChanged += OnExplorerChanged;
         }
         catch (Exception e)
@@ -412,7 +423,7 @@ internal sealed partial class DeskApp : ApplicationContext
 
     private void Tick()
     {
-        _targets?.Tick(_settings.Enabled, _settings.Enabled && _settings.StyleStartMenu);
+        _targets?.Tick();
         if (_tray == null)
         {
             return; // Still starting up.
@@ -420,7 +431,7 @@ internal sealed partial class DeskApp : ApplicationContext
 
         // Poll quickly while waiting for the taskbar after sign-in or an
         // explorer restart, slowly afterwards.
-        bool fast = DateTime.UtcNow < _fastTicksUntil && _targets is { ExplorerInjected: false };
+        bool fast = DateTime.UtcNow < _fastTicksUntil && TaskbarStatus != EngineStatus.Active;
         int interval = fast ? 250 : 2000;
         if (_timer.Interval != interval)
         {
@@ -444,23 +455,16 @@ internal sealed partial class DeskApp : ApplicationContext
         }
     }
 
-    private void OnExplorerChanged(uint processId)
+    private void OnExplorerChanged(ProcessInstance process)
     {
         _fastTicksUntil = DateTime.UtcNow.AddSeconds(60);
-        if (DateTime.UtcNow - _restartRequestedAt < TimeSpan.FromSeconds(20))
-        {
-            return;
-        }
 
         // Explorer restarting again and again right after DeskTap was loaded
-        // most likely means the engine crashes it: stop.
-        var now = DateTime.UtcNow;
-        _explorerRestarts.Add(now);
-        _explorerRestarts.RemoveAll(t => now - t > TimeSpan.FromMinutes(3));
-        Log.Warn($"Explorer restarted ({_explorerRestarts.Count} times in 3 minutes)");
-        if (_explorerRestarts.Count >= 3 && _settings.Enabled)
+        // most likely means the engine crashes it: stop. This runs inside
+        // the target manager's tick, which reads the setting again before it
+        // would load the engine into the new explorer.
+        if (_restartGuard.OnRestart(DateTime.UtcNow) && _settings.Enabled)
         {
-            _explorerRestarts.Clear();
             SetEnabled(false, notify: false);
             Notify("Desk 已自动停用", "资源管理器在短时间内重启了多次，为了安全已停用美化。可以在设置窗口里重新启用，并把日志发给开发者。");
         }
@@ -470,6 +474,10 @@ internal sealed partial class DeskApp : ApplicationContext
     {
         _settings.Enabled = enabled;
         _settings.Save();
+        if (!enabled)
+        {
+            _targets?.Cancel();
+        }
         Apply();
         Tick();
         StateChanged?.Invoke();
