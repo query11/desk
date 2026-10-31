@@ -113,7 +113,9 @@ public class DiagnosticsTests
 
         Assert.True(result.Success);
         Assert.Contains("before the export", ReadZip(dir.File("out.zip"))["logs/desk.log"]);
-        Assert.Contains("after the export", File.ReadAllText(log.CurrentPath));
+        using var shared = new FileStream(log.CurrentPath, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        Assert.Contains("after the export", new StreamReader(shared).ReadToEnd());
     }
 
     [Fact]

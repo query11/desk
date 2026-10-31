@@ -12,6 +12,19 @@ public class LogTests
     private static long TotalSize(TempDir dir) =>
         Directory.GetFiles(dir.Path, "*.log").Sum(f => new FileInfo(f).Length);
 
+    // The writer keeps desk.log open for writing (shared, as for a log
+    // viewer); Windows refuses File.ReadAllText's read-only sharing then.
+    private static string Read(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
+    private static string[] ReadLines(string path) =>
+        Read(path).Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+
     [Fact]
     public void RotatesWhileRunningAndKeepsABoundedHistory()
     {
@@ -35,8 +48,8 @@ public class LogTests
             Assert.True(new FileInfo(file).Length <= 8 * 1024);
         }
         // The newest lines are in desk.log, older ones in the history, in order.
-        Assert.Contains(Message(1999), File.ReadAllText(dir.File("desk.log")));
-        string history = File.ReadAllText(dir.File("desk.1.log"));
+        Assert.Contains(Message(1999), Read(dir.File("desk.log")));
+        string history = Read(dir.File("desk.1.log"));
         Assert.DoesNotContain(Message(1999), history);
         Assert.Contains("message 0", history);
         Assert.Equal(0, log.Dropped);
@@ -64,9 +77,9 @@ public class LogTests
         second.Write("INFO", new string('y', 1500), T0.AddHours(1));
         second.WritePending();
 
-        string all = string.Concat(Directory.GetFiles(dir.Path, "*.log").Select(File.ReadAllText));
+        string all = string.Concat(Directory.GetFiles(dir.Path, "*.log").Select(Read));
         Assert.Contains("crash evidence from the previous run", all);
-        Assert.Contains("started again", File.ReadAllText(dir.File("desk.log")));
+        Assert.Contains("started again", Read(dir.File("desk.log")));
     }
 
     [Fact]
@@ -83,7 +96,7 @@ public class LogTests
         });
         Assert.True(log.Flush(TimeSpan.FromSeconds(10)));
 
-        var lines = File.ReadAllLines(dir.File("desk.log"));
+        var lines = ReadLines(dir.File("desk.log"));
         Assert.Equal(2000 - log.Dropped, lines.Length);
         Assert.Equal(0, log.Dropped);
         Assert.All(lines, line => Assert.Matches(@"^\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}\] INFO thread \d line \d+$", line));
@@ -133,7 +146,7 @@ public class LogTests
         }
         Assert.Equal(15, log.Dropped);
         log.WritePending();
-        var lines = File.ReadAllLines(dir.File("desk.log"));
+        var lines = ReadLines(dir.File("desk.log"));
         Assert.Equal(11, lines.Length);
         Assert.Contains("line 9", lines[9]);
         Assert.Contains("15 条日志没能写入", lines[10]);
@@ -152,7 +165,7 @@ public class LogTests
         // The same message after the window counts again.
         log.Write("WARN", "SetValue failed", T0.AddSeconds(30));
         log.WritePending();
-        var lines = File.ReadAllLines(dir.File("desk.log"));
+        var lines = ReadLines(dir.File("desk.log"));
         Assert.Equal(4, lines.Length);
         Assert.Contains("SetValue failed", lines[0]);
         Assert.Contains("又重复了 99 次", lines[1]);
@@ -168,7 +181,7 @@ public class LogTests
         log.Write("WARN", "again", T0);
         log.Write("WARN", "again", T0.AddSeconds(1));
         log.Flush(TimeSpan.FromSeconds(1));
-        var lines = File.ReadAllLines(dir.File("desk.log"));
+        var lines = ReadLines(dir.File("desk.log"));
         Assert.Equal(2, lines.Length);
         Assert.Contains("又重复了 1 次", lines[1]);
     }
