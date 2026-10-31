@@ -3,8 +3,12 @@
 每个版本都在你的电脑上按这个清单检查一遍。发现问题时，请带上：
 
 - 截图；
-- 日志文件夹里的文件（设置窗口 → 设置 →「日志」，即 `%LOCALAPPDATA%\Desk\logs`）；
+- 诊断包（设置窗口 → 设置 →「导出诊断」），或者日志文件夹里的文件（「日志」，即 `%LOCALAPPDATA%\Desk\logs`）；
 - 当时做了什么操作。
+
+第 0～8 节是每个版本的日常检查。第 9～15 节是 v0.4 的故障恢复、主题参数、开机自启、点击穿透、
+长期运行和性能检查，其中强制结束进程、反复重启资源管理器这类操作请在**独立的 Windows 测试环境**
+（虚拟机或测试账户）里做。第 16 节是不需要 Windows 桌面的自动化测试。
 
 ## 0. 准备
 
@@ -20,7 +24,10 @@
 - [ ] 如果资源管理器里还在跑 v0.1 的引擎，概览页会提示「Desk 已更新」。点「重启资源管理器」后提示消失。
 - [ ] 关闭窗口：Desk 留在托盘里，第一次关闭时弹出「Desk 仍在后台运行」的提示。
 - [ ] 单击托盘图标、或者再次双击 `Desk.exe`，都会重新打开窗口，并且只有一个 Desk 在运行。
-- [ ] 概览页：任务栏和开始菜单的状态显示「已生效」（开始菜单在第一次打开前可能显示「下次打开开始菜单时生效」）。
+- [ ] 概览页：任务栏和开始菜单的状态显示「已生效」。开始菜单在第一次打开前显示「下次打开开始菜单时生效」
+  或「引擎已就绪，开始菜单出现后生效」，打开一次后变成「已生效」。
+  「已生效」只在引擎报告**当前这份设置已经应用到界面**之后才出现；只是加载了引擎时显示「引擎已加载，正在初始化…」
+  或「正在应用当前设置…」。
 
 ## 2. 浮岛外观（对照图一）
 
@@ -30,7 +37,7 @@
 - [ ] 系统的小组件（天气）按钮不再跑到应用岛外面（信息岛打开时它是隐藏的，Win + W 仍能打开小组件）。
 - [ ] 岛是亮的亚克力质感：能透出壁纸的颜色，近看有细微颗粒，顶部有一道亮边，不再发灰发闷。
 - [ ] 「任务栏」页的每个滑块都有图标、名称和说明（圆角、上下留白、模糊、着色浓度、明暗统一、饱和度、颗粒感），拖动时任务栏实时跟着变化。
-- [ ] 「恢复默认」能回到主题原来的样子。
+- [ ] 「恢复默认」能回到当前主题原来的样子，只影响当前主题和当前页面（任务栏页不会重置开始菜单页）。
 - [ ] 换一张很亮和一张很暗的壁纸，岛上的文字和图标都看得清。
 
 ## 3. 开始菜单（对照图二）
@@ -62,6 +69,7 @@
   可以在日志里找 `Taskbar engine loaded … ms after start` 这一行，看从 Desk 启动到任务栏生效用了多久。
 - [ ] 关闭「开机自动启动」后重启电脑，Desk 不再自动运行；再打开又会恢复。
 - [ ] （可选）在「任务计划程序」里能看到 `Desk Autostart (你的用户名)` 这个任务。
+- [ ] 开关下方显示实际情况：「当前：已开启（计划任务）」或「当前：已关闭」。更多失败情况见第 11 节。
 
 ## 7. 主题和其他设置
 
@@ -75,11 +83,165 @@
 - [ ] 按 `Ctrl + Alt + Shift + D`：任务栏和开始菜单立即恢复原样；再按一次，美化回来。
 - [ ] 「重启资源管理器」后，美化在几秒内自动恢复。
 - [ ] 托盘菜单或「设置」页的「退出并还原」：任务栏和开始菜单恢复成系统原样，托盘图标消失。
-- [ ] 正常使用半天：资源管理器的内存没有持续上涨，也没有崩溃或卡顿。
+- [ ] 正常使用半天：资源管理器的内存没有持续上涨，也没有崩溃或卡顿（详细方法见第 14 节）。
+- [ ] 命令行运行 `Desk.exe --restore`：弹出「Desk 已还原」的说明，任务栏和开始菜单恢复原样，Desk 退出；
+  再运行一次 `Desk.exe`，美化处于停用状态，打开开关后恢复（详细情况见第 9.3 节）。
 
-## 已知限制（v0.3）
+## 9. 故障恢复（独立测试环境）
+
+状态文件和日志的位置：
+
+- 引擎状态：`%LOCALAPPDATA%\Desk\state\explorer.exe.<pid>.json`、`startmenuexperiencehost.exe.<pid>.json`
+  （`state` 为 ready/failed…，`appliedSerial` 与 `runtime\explorer.exe.json` 的 `serial` 相同表示已应用，
+  `host.state` 为 attached/lost，`counters` 是诊断计数）；
+- 引擎日志：`%LOCALAPPDATA%\Desk\logs\tap-explorer.exe.log`、`tap-startmenuexperiencehost.exe.log`；
+- 宿主日志：`desk.log`（`--restore` 写 `restore.log`）。
+
+### 9.1 Desk.exe 被强制结束
+
+- [ ] 美化开启、信息岛和点击穿透都打开时，在任务管理器里结束 `Desk.exe`（或 `taskkill /f /im Desk.exe`）。
+  预期：任务栏在约 1～2 秒内恢复原样，信息岛消失，空白处可以正常点击；`tap-explorer.exe.log` 里有
+  `Desk.exe (session …) is gone (process ended): restoring`，状态文件里 `host.state` 为 `lost`。
+- [ ] 打开开始菜单：已恢复原样。日志里是 `process ended`（开始菜单能直接等待 Desk 进程）还是 `no heartbeat`
+  （只能靠心跳，最多约 60 秒醒着的时间后恢复），请记下来，这一点还没有在实机上确认过。
+- [ ] 再次运行 `Desk.exe`：几秒内美化回来，**不需要**重启资源管理器；状态文件的 `host.state` 回到 `attached`。
+- [ ] 快速重复「结束 → 启动」三次：每次都能恢复和重新美化，不会出现启动后又被还原的情况。
+- [ ] 结束 `Desk.exe` 后让电脑睡眠几分钟再唤醒，或者在美化开启时睡眠再唤醒（Desk 正常运行）：
+  后者唤醒后美化仍在（睡眠时间不算作心跳超时）。
+
+### 9.2 自动隐藏的还原
+
+- [ ] 系统「自动隐藏任务栏」关闭，Desk 设为「窗口最大化时 → 自动隐藏任务栏」，最大化一个窗口（任务栏被 Desk 设为自动隐藏），
+  然后强制结束 `Desk.exe`。再次启动 Desk：自动隐藏被关回去（`desk.log`：`Restored auto-hide changed by a previous run`）。
+- [ ] 同样的步骤，但结束 Desk 后**先在系统设置里自己关掉**自动隐藏，再启动 Desk：Desk 不做改动
+  （日志：`turned off by the user meanwhile`）。
+- [ ] 系统「自动隐藏任务栏」本来就是打开的：最大化、还原、退出 Desk、强制结束 Desk，自动隐藏始终保持打开。
+- [ ] 强制结束后不启动 Desk，而是运行 `Desk.exe --restore`：自动隐藏同样被关回去。
+
+### 9.3 紧急恢复 `Desk.exe --restore`
+
+- [ ] Desk 正常运行时：Desk 收到请求后自己还原并退出，提示「已让正在运行的 Desk 还原并退出」。
+- [ ] Desk 卡住时（用资源监视器或 Process Explorer「挂起」`Desk.exe` 进程）：约 5 秒后 Desk 被结束，
+  提示「正在运行的 Desk 没有响应，已将它结束」，美化恢复原样。
+- [ ] 没有 Desk 运行（例如结束 Desk 后美化已被引擎还原，或设置窗口打不开）：直接写入停用配置，提示恢复完成。
+- [ ] 连续运行两次：第二次同样成功，不改变已恢复的状态。
+- [ ] 资源管理器里还是旧版引擎（从 v0.3 升级、没重启资源管理器）：`--restore` 同样能让任务栏恢复原样。
+- [ ] `Desk.exe --restore --quiet` 不弹窗，结果写在 `logs\restore.log`。
+
+### 9.4 引擎初始化失败与恢复
+
+- [ ] 在 `%LOCALAPPDATA%\Desk\state` 里新建空文件 `fault.engine-init.explorer.exe`，然后重启资源管理器。
+  预期：概览页任务栏显示「引擎初始化失败：初始化失败（FaultInjection，0x80004005），N 秒后自动重试」，**不显示「已生效」**。
+- [ ] 删除这个文件，点「重新应用」：几秒内变成「已生效」，任务栏变成浮岛（不需要再重启资源管理器）。
+- [ ] 再做一次，这次删除文件后什么都不点：在提示的重试时间（15 秒起，逐次加倍，最多 5 分钟）后自动恢复。
+- [ ] 开始菜单同理：文件名 `fault.engine-init.startmenuexperiencehost.exe`，在任务管理器里结束 `StartMenuExperienceHost.exe` 让它重新加载。
+- [ ] 在美化**停用**时让资源管理器重启：引擎不会被加载；若加载了（日志里有 DeskTap 那一行），状态是 `loaded`，不会初始化 XAML 诊断。
+
+### 9.5 开始菜单加载失败与挂起
+
+- [ ] 在 `state` 里新建文件 `fault.inject.startmenuexperiencehost.exe`，内容写 `CreateThread`，然后结束 `StartMenuExperienceHost.exe`。
+  预期：概览页显示「连接失败：无法创建加载线程（错误 5），N 秒后自动重试」，`desk.log` 里有按 10 s、20 s、40 s… 退避的重试。
+  依次把内容改成 `OpenProcess`、`AllocateMemory`、`WriteMemory`，提示随之变化。
+- [ ] 删除文件：在下一次重试时（或点「重新应用」立即）恢复，显示「下次打开开始菜单时生效」或「已生效」。
+- [ ] 重启资源管理器后不要打开开始菜单：显示「下次打开开始菜单时生效」，`desk.log` 里只有一次
+  `hasn't run the loader yet; waiting for it`，之后不再创建新的加载线程（即使停用再启用、或点「重新应用」）。
+  打开开始菜单后变成「已生效」，`tap-startmenuexperiencehost.exe.log` 里只有一行 `DeskTap … in startmenuexperiencehost.exe`。
+- [ ] 任务栏同理：`fault.inject.explorer.exe`（内容 `Hook`），重启资源管理器后显示连接失败并重试。
+
+### 9.6 崩溃保护
+
+- [ ] 在 3 分钟内用 `taskkill /f /im explorer.exe` 结束资源管理器 3 次（等它自己重新出现后再结束下一次；不要用 Desk 的「重启资源管理器」，那个不计数）。
+  预期：第 3 次后弹出「Desk 已自动停用」，新的资源管理器里**没有**加载引擎（`tap-explorer.exe.log` 里没有新 pid 的启动行，
+  概览页显示「已关闭」），之后几分钟也不会加载。
+- [ ] 打开美化开关：任务栏正常重新美化。
+
+## 10. 按主题保存的参数
+
+- [ ] 主题选「Desk 浮岛」，任务栏页把「着色浓度」拖到 80%。切到「Desk 浮岛 · 高通透」：滑块显示该主题自己的 30%，任务栏也是 30% 的效果。
+- [ ] 在高通透主题把「着色浓度」改成 20%，切回「Desk 浮岛」：显示并应用 80%；再切回高通透：20%。
+- [ ] 退出并重新启动 Desk：两个主题的值都还在。切换 Windows 浅色/深色：每个主题分别保存浅色和深色的值。
+- [ ] 在「Desk 浮岛」的任务栏页点「恢复默认」：只恢复这个主题的任务栏参数；开始菜单页的调整和高通透主题的调整都保留。
+- [ ] 旧设置迁移：退出 Desk，把 `%APPDATA%\Desk\settings.json` 换成 v0.3 的设置（含 `"Overrides": {...}`、`"Theme": "desk-islands"`），启动 Desk：
+  调整只出现在「Desk 浮岛」上，其他主题是默认值；文件里 `Overrides` 变成了 `ThemeOverrides` 和 `MigratedOverrides`。再重启一次，结果不变。
+
+## 11. 开机自启的失败与状态
+
+- [ ] 在「任务计划程序」里禁用 `Desk Autostart (用户名)` 后打开设置页：开关为关，下方显示「当前：不会启动（计划任务已被禁用）」；
+  Desk 重启后不会自己把任务重新启用。打开开关后任务被重新创建并启用。
+- [ ] 把 Desk 文件夹移到别处后运行新位置的 `Desk.exe`：几秒后任务指向新位置（「当前：已开启（计划任务）」）。
+- [ ] 计划任务和注册表启动项同时存在（手动添加 `HKCU\...\Run\Desk`）：Desk 启动后删掉注册表项，只保留计划任务。
+- [ ] 操作失败时（例如用组策略禁止创建计划任务，或在另一个账户下锁住 Run 键）：设置页弹出「开机自启没有改成功」及原因，
+  开关回到实际状态，`desk.log` 里没有「Autostart on/off」之类的成功记录；解除限制后再操作能成功。
+- [ ] 打开、关闭开关后重启电脑：实际行为和设置页显示一致。
+
+## 12. 点击穿透
+
+- [ ] 打开穿透后：改缩放比例、切换自动隐藏、插拔副屏、重启资源管理器（任务栏框架被重建），岛之间空白处始终可以点穿，岛本身可以正常点击。
+- [ ] 快速连续切换穿透开关十几次，最后停在「关」：整个任务栏都能正常点击（没有残留的裁切）。
+- [ ] 穿透开着时停用美化、按 `Ctrl+Alt+Shift+D`、或强制结束 Desk：原生任务栏、托盘弹窗和空白区域都恢复正常交互。
+- [ ] 状态文件 `counters` 中 `regionsSet` 与 `regionsCleared` 在关闭穿透后相等（或差值等于仍在使用的任务栏数量）。
+
+## 13. 日志与诊断
+
+- [ ] 长时间运行或反复操作后，`logs` 里最多有 `desk.log`、`desk.1.log`…`desk.4.log`（每个不超过约 1 MiB）和
+  `tap-explorer.exe.log`、`tap-explorer.exe.1.log`…`.3.log`；重新启动 Desk 不会清空上一次的日志。
+- [ ] 设置页「导出诊断」：保存一个 zip。打开后有 `summary.json`（版本、Windows 版本号、显示器和缩放、主题、任务栏和开始菜单状态、
+  开机自启、最近的错误）以及 `logs/`、`runtime/`、`state/`、`settings.json`；路径里的用户名被替换成 `%USERPROFILE%`、`<user>`；
+  宿主日志（`desk.log`）和各目标进程的日志（`tap-explorer.exe.log`、`tap-startmenuexperiencehost.exe.log`）分开。
+- [ ] 导出时某个日志正被写入也能导出；读不到的文件列在 `summary.json` 的 `missing` 里。
+
+## 14. 长期运行与资源（独立测试环境）
+
+状态文件 `counters` 里成对的计数用来判断 Desk 自己有没有泄漏：`uiThreadsSeen`/`uiThreadsReleased`、
+`propertyCallbacks`/`propertyCallbacksReleased`、`layoutSubscriptions`/`layoutSubscriptionsReleased`、
+`subclasses`/`subclassesReleased`、`blurBrushes`/`blurBrushesReleased`、`monitorIslands`/`monitorIslandsReleased`、
+`samplerThreadStarts`/`samplerThreadStops`。
+
+- [ ] 预热 10 分钟后记录一次 `counters` 和任务管理器里 `explorer.exe` 的内存、句柄数（「详细信息」页添加「句柄」列）。
+- [ ] 反复做下面的操作各 20 次后再记录：插拔副屏（或在显示设置里断开/连接第二台显示器）、重启资源管理器、
+  开关信息岛、开关设置窗口、切换主题。每对计数的差值应保持稳定（不随次数增长）；`effectFactories` 和 `noiseSurfaces` 不会无限增长。
+- [ ] 正常使用 4 小时以上，每小时记录一次内存和句柄。只在 Desk 的计数同时增长时才归因于 Desk。
+- [ ] 断开副屏时，日志里出现 `XAML thread shutting down; its state was released`（若 Windows 在该场景下确实结束了对应的 XAML 线程）。
+
+## 15. 性能对比（独立测试环境，同一台电脑、同一主题）
+
+v0.4 的改动减少了重复工作（见状态文件 `counters`），具体的 CPU/GPU 收益需要实测，请按下面的方法记录数字：
+
+- [ ] 拖动「模糊」「着色浓度」滑块各 10 秒：`effectFactories` 不增加，`blurInPlaceUpdates` 增加，`blurBrushes` 不增加；
+  拖动「明暗统一」「饱和度」「颗粒感」：`effectFactories` 每个新数值增加一次，拖回到用过的数值时 `effectFactoryHits` 增加；
+  `noiseSurfaces` 始终只有一两个。`styleResolves` 每一步只增加被改动的规则数（默认主题任务栏 3 条，开始菜单 1 条）。
+- [ ] 同样的拖动，在 Windows 性能监视器或 Windows Performance Recorder（CPU 使用率、GPU）里分别记录 v0.3 和 v0.4 的
+  `explorer.exe` CPU 时间和帧时间，把结果附在反馈里。
+- [ ] 信息岛只勾选「内存」：等 1 分钟，`samplesMemory` 每秒增加，`samplesCpu`、`samplesNetwork` 不变。
+  关闭信息岛：`samplerThreadStops` 增加，所有 `samples*` 停止增长。重新打开 CPU/网速：第一秒显示 `--`，之后数值正常。
+- [ ] 平均每次刷新在 UI 线程上的耗时 = `monitorUiMicros / (monitorPosts)`（微秒），记录下来；`monitorTextUpdates` 远小于
+  「刷新次数 × 4」说明没变化的文字没有重写。
+- [ ] 睡眠唤醒后：网速和 CPU 第一秒是 `--`，然后正常，没有异常的大数字。
+
+## 16. 自动化测试（不需要 Windows 桌面）
+
+在仓库根目录：
+
+```sh
+dotnet test tests/Desk.Tests
+g++ -std=c++20 -I src/DeskTap/src src/DeskTap/tests/core_tests.cpp -o core_tests && ./core_tests
+```
+
+GitHub Actions 每次构建都会用 MSVC 编译并运行 `DeskTapCoreTests`，并运行 `tests/Desk.Tests`。覆盖范围：
+
+- 注入状态机：崩溃保护在同一轮内生效、排队/执行中/返回时停用、旧回调、进程 id 复用、开始菜单各阶段失败的退避重试、挂起等待不重复创建线程、目标退出；
+- 引擎状态：只在引擎报告「当前设置已应用到当前进程」时才算已生效，旧进程的状态文件、连续修改、初始化失败和恢复、旧版引擎；
+- 宿主存活判断、初始化重试策略、应用结果汇总、点击穿透的事件顺序、信息岛采样（按需采样、基线重置、休眠间隔）；
+- 自动隐藏记录、紧急恢复、心跳；按主题保存参数和旧设置迁移（用仓库里的主题文件）；开机自启的各种失败；日志轮转与诊断导出。
+
+## 已知限制（v0.4）
 
 - 只支持 x64 的 Windows 11 24H2/25H2；任务栏放在顶部或左右两侧时还没有适配。
+- 开始菜单的引擎能否直接等待 Desk 进程（Desk 给自己的进程加了应用容器的同步权限）还没有在实机上确认；做不到时靠心跳，
+  Desk 异常退出后最多约 60 秒（醒着的时间）才恢复开始菜单。
+- Desk 卡住但进程还在时，引擎不会自动还原（卡住不等于退出）；可以用 `Desk.exe --restore`。
+- 「自动隐藏」被 Desk 打开后，如果用户先关再开，Desk 无法区分，退出时仍会把它关掉。
+- 「明暗统一」「饱和度」「颗粒感」的数值固定在效果图里，拖动这三个滑块时每个新数值仍要建一次效果（会缓存）；「模糊」「着色浓度」是直接改数值。
 - 带 `@状态` 的样式（悬停、按下等视觉状态）暂不支持，导入 Windhawk 主题时这类规则会被跳过。
 - 多显示器时，「窗口最大化」只看主任务栏所在的显示器。
 - 从旧版本升级后，资源管理器需要重启一次才会换上新的引擎。
