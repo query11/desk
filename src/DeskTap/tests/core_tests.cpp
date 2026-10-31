@@ -11,6 +11,7 @@
 #include "core/clickthrough_gate.h"
 #include "core/host_watch.h"
 #include "core/init_policy.h"
+#include "core/sampler_core.h"
 
 namespace {
 
@@ -279,6 +280,102 @@ TEST(ClickThroughNewThreadUsesTheConfiguration) {
     CHECK(gate.EnabledForNewElement(true));
     CHECK(!gate.EnabledForNewElement(false));
     CHECK(!gate.Enabled());
+}
+
+// ----------------------------------------------------------- SamplerCore
+
+struct FakeSource : desk::core::SystemSource {
+    int cpuReads = 0;
+    int memoryReads = 0;
+    int networkReads = 0;
+    desk::core::CpuTimes cpu;
+    double memory = 40;
+    std::vector<desk::core::InterfaceCounters> interfaces = {{1, 0, 0}};
+
+    std::optional<desk::core::CpuTimes> Cpu() override {
+        cpuReads++;
+        return cpu;
+    }
+    std::optional<double> MemoryLoad() override {
+        memoryReads++;
+        return memory;
+    }
+    std::optional<std::vector<desk::core::InterfaceCounters>> Network() override {
+        networkReads++;
+        return interfaces;
+    }
+};
+
+using desk::core::SamplerCore;
+
+TEST(SamplerOnlyReadsWhatIsShown) {
+    FakeSource source;
+    SamplerCore sampler(source);
+    for (uint64_t t = 1000; t <= 10'000; t += 1000) {
+        auto stats = sampler.Sample(desk::core::kMemory, t);
+        CHECK(stats.memory == 40.0);
+        CHECK(!stats.cpu && !stats.down);
+    }
+    CHECK(source.memoryReads == 10);
+    CHECK(source.cpuReads == 0);
+    CHECK(source.networkReads == 0);
+}
+
+TEST(SamplerRatesNeedTwoSamples) {
+    FakeSource source;
+    SamplerCore sampler(source);
+    uint8_t all = desk::core::kCpu | desk::core::kMemory | desk::core::kNetwork;
+    source.cpu = {100, 200, 100};  // 300 total, 100 idle.
+    auto first = sampler.Sample(all, 1000);
+    CHECK(!first.cpu && !first.down);  // Only a baseline.
+
+    source.cpu = {150, 300, 200};      // +200 total, +50 idle: 75%.
+    source.interfaces = {{1, 2048, 1024}};
+    auto second = sampler.Sample(all, 2000);
+    CHECK(second.cpu && *second.cpu == 75.0);
+    CHECK(second.down && *second.down == 2048.0);
+    CHECK(second.up && *second.up == 1024.0);
+}
+
+TEST(SamplerTurningNetworkOnStartsANewBaseline) {
+    FakeSource source;
+    SamplerCore sampler(source);
+    sampler.Sample(desk::core::kNetwork, 1000);
+    source.interfaces = {{1, 1000, 0}};
+    CHECK(sampler.Sample(desk::core::kNetwork, 2000).down == 1000.0);
+
+    // Off for a while: the traffic meanwhile must not show up as one spike.
+    sampler.Sample(desk::core::kMemory, 3000);
+    source.interfaces = {{1, 900'000'000, 0}};
+    CHECK(!sampler.Sample(desk::core::kNetwork, 4000).down);
+    source.interfaces = {{1, 900'000'500, 0}};
+    CHECK(sampler.Sample(desk::core::kNetwork, 5000).down == 500.0);
+}
+
+TEST(SamplerAGapStartsANewBaseline) {
+    // Sleep or a stalled thread: no huge or tiny average over the gap.
+    FakeSource source;
+    SamplerCore sampler(source);
+    uint8_t needs = desk::core::kCpu | desk::core::kNetwork;
+    source.cpu = {0, 100, 0};
+    sampler.Sample(needs, 1000);
+    source.cpu = {1000, 2000, 500};
+    source.interfaces = {{1, 50'000'000, 0}};
+    auto afterGap = sampler.Sample(needs, 1000 + SamplerCore::kMaxGapMs + 1);
+    CHECK(!afterGap.cpu && !afterGap.down);
+}
+
+TEST(SamplerAdapterChanges) {
+    FakeSource source;
+    SamplerCore sampler(source);
+    source.interfaces = {{1, 1000, 1000}};
+    sampler.Sample(desk::core::kNetwork, 1000);
+    // Adapter 1 reset its counters, adapter 2 is new: neither counts yet.
+    source.interfaces = {{1, 10, 10}, {2, 5000, 5000}};
+    auto stats = sampler.Sample(desk::core::kNetwork, 2000);
+    CHECK(stats.down == 0.0);
+    source.interfaces = {{1, 110, 10}, {2, 5100, 5000}};
+    CHECK(sampler.Sample(desk::core::kNetwork, 3000).down == 200.0);
 }
 
 }  // namespace

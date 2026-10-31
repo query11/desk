@@ -8,6 +8,7 @@
 // GPL-3.0).
 #include "pch.h"
 #include "engine.h"
+#include "blur.h"
 #include "clickthrough.h"
 #include "config.h"
 #include "control.h"
@@ -45,18 +46,27 @@ struct TrackedElement {
 
 using ConditionValues =
     std::vector<std::pair<wux::DependencyProperty, wf::IInspectable>>;
+using StyleList = std::shared_ptr<const std::vector<ResolvedStyle>>;
+
+// Resolved styles that outlive a configuration, by type and style text. A
+// slider changes one constant; the rules that don't use it resolve to the
+// same values, so they aren't parsed again.
+using StyleTextCache = std::unordered_map<std::wstring, StyleList>;
+constexpr size_t kMaxStyleTexts = 256;
 
 // Resolved values for one configuration. Held by shared_ptr so that a config
 // change in the middle of applying can't free values still in use.
 struct Cache {
     uint64_t revision = 0;
-    std::unordered_map<std::wstring, std::vector<ResolvedStyle>> styles;
+    std::unordered_map<std::wstring, StyleList> styles;
     std::unordered_map<std::wstring, ConditionValues> conditions;
+    StyleTextCache* byText = nullptr;  // The thread's, outlives this.
 };
 
 struct ThreadState {
     std::unordered_map<InstanceHandle, TrackedElement> elements;
     std::shared_ptr<Cache> cache;
+    StyleTextCache stylesByText;
     int modifying = 0;
     std::vector<InstanceHandle> pendingRemovals;
     size_t addsSincePrune = 0;
@@ -121,6 +131,7 @@ std::shared_ptr<Cache> CacheFor(ThreadState& state, const Config& config) {
     if (!state.cache || state.cache->revision != config.revision) {
         state.cache = std::make_shared<Cache>();
         state.cache->revision = config.revision;
+        state.cache->byText = &state.stylesByText;
     }
     return state.cache;
 }
@@ -135,14 +146,43 @@ const std::vector<ResolvedStyle>& ResolvedFor(Cache& cache,
     key += diagnosticsType;
 
     auto it = cache.styles.find(key);
-    if (it == cache.styles.end()) {
-        it = cache.styles
-                 .emplace(std::move(key),
-                          ResolveStyles(rule.element.type, diagnosticsType,
-                                        rule.styles))
-                 .first;
+    if (it != cache.styles.end()) {
+        return *it->second;
     }
-    return it->second;
+
+    // Markup extensions ({ThemeResource ...}) can resolve differently later,
+    // so only plain values are kept across configurations.
+    bool plain = true;
+    std::wstring text = rule.element.type;
+    text += L'\x1f';
+    text += diagnosticsType;
+    for (const auto& style : rule.styles) {
+        plain &= style.value.find(L'{') == std::wstring::npos;
+        text += L'\x1f';
+        text += style.property;
+        text += style.isXaml ? L":=" : L"=";
+        text += style.value;
+    }
+
+    StyleList list;
+    if (plain && cache.byText) {
+        if (auto found = cache.byText->find(text); found != cache.byText->end()) {
+            list = found->second;
+            status::Count(status::kStyleCacheHits);
+        }
+    }
+    if (!list) {
+        list = std::make_shared<const std::vector<ResolvedStyle>>(
+            ResolveStyles(rule.element.type, diagnosticsType, rule.styles));
+        status::Count(status::kStyleResolves);
+        if (plain && cache.byText) {
+            if (cache.byText->size() >= kMaxStyleTexts) {
+                cache.byText->clear();
+            }
+            cache.byText->emplace(std::move(text), list);
+        }
+    }
+    return *cache.styles.emplace(std::move(key), std::move(list)).first->second;
 }
 
 const ConditionValues& ConditionsFor(Cache& cache,
@@ -464,6 +504,22 @@ void Apply(ThreadState& state,
         if (existing != tracked.properties.end() &&
             existing->signature == style->signature) {
             continue;
+        }
+
+        // The material's numbers changed (a slider): the brush that is set
+        // takes them, instead of a new brush, a new effect and a property
+        // write for every element.
+        if (existing != tracked.properties.end()) {
+            if (auto* blur = std::get_if<BlurParams>(&style->value)) {
+                if (auto brush = existing->applied.try_as<IDeskBlurBrush>()) {
+                    auto local = ReadLocalValueSafe(element, style->property);
+                    if (SameLocalValue(local, existing->applied) &&
+                        SUCCEEDED(brush->UpdateParams(blur))) {
+                        existing->signature = style->signature;
+                        continue;
+                    }
+                }
+            }
         }
 
         MaterializedValue value;

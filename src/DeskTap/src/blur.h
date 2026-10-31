@@ -24,16 +24,34 @@ struct BlurParams {
     std::optional<winrt::Windows::UI::Color> fallback;
 };
 
+// Lets the engine change the numbers of a brush it set without replacing it.
+struct __declspec(uuid("6c4c3a5e-2f0b-4f7a-9d63-0f7c1b2e8a41")) IDeskBlurBrush
+    : ::IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE UpdateParams(const BlurParams* params) noexcept = 0;
+};
+
 // A XAML brush which blurs whatever is behind the element and tints it.
 // Based on XamlBlurBrush from TranslucentTB (GPL-3.0) and its extended version
 // in the Windows 11 Taskbar Styler mod for Windhawk (GPL-3.0).
-class DeskBlurBrush : public wuxm::XamlCompositionBrushBaseT<DeskBlurBrush> {
+//
+// Changing only the blur amount or the tint (color and opacity) updates the
+// running effect's properties. Other changes need another effect graph; the
+// graphs (effect factories) and the noise image are cached per UI thread and
+// compositor, so moving a slider back and forth doesn't build them again.
+class DeskBlurBrush
+    : public wuxm::XamlCompositionBrushBaseT<DeskBlurBrush, IDeskBlurBrush> {
 public:
     DeskBlurBrush(wux::UIElement const& element, BlurParams params);
     ~DeskBlurBrush();
 
     void OnConnected();
     void OnDisconnected();
+
+    HRESULT STDMETHODCALLTYPE UpdateParams(const BlurParams* params) noexcept override;
+
+    // Drops the calling thread's cached factories and noise images (the
+    // thread's dispatcher is shutting down).
+    static void ReleaseThreadCaches();
 
 private:
     wuc::CompositionBrush CreateEffectBrush();
@@ -43,6 +61,10 @@ private:
 
     wuc::Compositor m_compositor{nullptr};
     BlurParams m_params;
+    // Set while the current composition brush is the solid fallback.
+    bool m_usingFallback = false;
+    // Whether the current effect brush accepts blur/tint property updates.
+    bool m_animatable = false;
     winrt::Windows::System::DispatcherQueue m_dispatcher{nullptr};
     winrt::Windows::UI::ViewManagement::UISettings m_uiSettings{nullptr};
     winrt::event_token m_advancedEffectsToken{};
