@@ -86,7 +86,11 @@ struct ThreadState {
     bool reportScheduled = false;
 };
 
-// Each XAML UI thread has its own elements; all access happens on that thread.
+// Each XAML UI thread has its own elements; all access happens on that
+// thread. Created when the thread reports its first element, deleted on the
+// thread when its dispatcher shuts down (OnThreadShutdown), so the XAML
+// objects it holds are released where they belong, while XAML still works.
+// Callbacks that arrive later find no state and do nothing.
 thread_local ThreadState* t_state = nullptr;
 
 struct UiThread {
@@ -95,8 +99,23 @@ struct UiThread {
     winrt::Windows::UI::Core::CoreDispatcher core{nullptr};
 };
 
+// Threads to reach for configuration changes. A thread leaves when its
+// dispatcher shuts down or refuses work.
 std::mutex g_threadsMutex;
 std::vector<UiThread> g_threads;
+
+void ForgetThread(DWORD id) {
+    {
+        std::lock_guard lock(g_threadsMutex);
+        g_threads.erase(std::remove_if(g_threads.begin(), g_threads.end(),
+                                       [id](const UiThread& t) { return t.id == id; }),
+                        g_threads.end());
+    }
+    status::ForgetThread(id);
+    control::Wake();
+}
+
+void OnThreadShutdown();
 
 struct ModifyingScope {
     explicit ModifyingScope(ThreadState& state) : state(state) {
@@ -109,11 +128,24 @@ struct ModifyingScope {
 ThreadState& StateFor(wux::FrameworkElement const& element) {
     if (!t_state) {
         t_state = new ThreadState();
+        status::Count(status::kUiThreadsSeen);
 
         UiThread thread;
         thread.id = GetCurrentThreadId();
         thread.queue = DispatcherQueue::GetForCurrentThread();
-        if (!thread.queue) {
+        if (thread.queue) {
+            try {
+                thread.queue.ShutdownStarting([](auto&&, auto&&) {
+                    try {
+                        OnThreadShutdown();
+                    } catch (...) {
+                    }
+                });
+            } catch (...) {
+                DLOG(L"Can't watch the dispatcher's shutdown: %08X",
+                     winrt::to_hresult().value);
+            }
+        } else {
             try {
                 thread.core = element.Dispatcher();
             } catch (...) {
@@ -377,8 +409,11 @@ void OnPropertyChanged(InstanceHandle handle,
 
 void Restore(wux::FrameworkElement const& element, AppliedProperty& applied) {
     try {
-        element.UnregisterPropertyChangedCallback(applied.property,
-                                                  applied.callbackToken);
+        if (applied.callbackToken) {
+            element.UnregisterPropertyChangedCallback(applied.property,
+                                                      applied.callbackToken);
+            status::Count(status::kPropertyCallbacksReleased);
+        }
     } catch (...) {
     }
 
@@ -563,6 +598,7 @@ void Apply(ThreadState& state,
                          wux::DependencyProperty const& property) {
                     OnPropertyChanged(handle, sender, property);
                 });
+            status::Count(status::kPropertyCallbacks);
         } catch (...) {
         }
 
@@ -619,6 +655,9 @@ void FlushPendingRemovals(ThreadState& state) {
 void Prune(ThreadState& state) {
     for (auto it = state.elements.begin(); it != state.elements.end();) {
         if (!it->second.element.get()) {
+            // The callbacks went with the element.
+            status::Count(status::kPropertyCallbacksReleased,
+                          static_cast<int64_t>(it->second.properties.size()));
             it = state.elements.erase(it);
         } else {
             ++it;
@@ -725,6 +764,30 @@ void ScheduleReport(ThreadState& state) {
     if (!state.reportScheduled) {
         status::Count(status::kDispatcherPostFailures);
     }
+}
+
+// The thread's dispatcher is shutting down: everything this thread holds is
+// released here, on the thread, while XAML still works. The elements are going
+// away with the tree, so they aren't restored.
+void OnThreadShutdown() {
+    DWORD id = GetCurrentThreadId();
+    if (paths::IsExplorer()) {
+        monitor::OnThreadShutdown();
+        clickthrough::OnThreadShutdown();
+    }
+    DeskBlurBrush::ReleaseThreadCaches();
+    if (t_state) {
+        size_t callbacks = 0;
+        for (auto& [handle, tracked] : t_state->elements) {
+            callbacks += tracked.properties.size();
+        }
+        status::Count(status::kPropertyCallbacksReleased, static_cast<int64_t>(callbacks));
+        delete t_state;
+        t_state = nullptr;
+        status::Count(status::kUiThreadsReleased);
+    }
+    ForgetThread(id);
+    DLOG(L"XAML thread shutting down; its state was released");
 }
 
 void ReapplyAll() {
@@ -878,14 +941,22 @@ void RunOnUiThreads(std::function<void()> callback) {
     };
 
     for (auto& thread : threads) {
+        bool queued = false;
         try {
             if (thread.queue) {
-                thread.queue.TryEnqueue(run);
+                queued = thread.queue.TryEnqueue(run);
             } else if (thread.core) {
                 thread.core.RunAsync(
                     winrt::Windows::UI::Core::CoreDispatcherPriority::Normal, run);
+                queued = true;
             }
         } catch (...) {
+        }
+        if (!queued) {
+            // The dispatcher is gone or shutting down: stop trying.
+            status::Count(status::kDispatcherPostFailures);
+            DLOG(L"XAML thread %lu doesn't take work any more; forgetting it", thread.id);
+            ForgetThread(thread.id);
         }
     }
 }
