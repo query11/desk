@@ -27,11 +27,24 @@ jobs:
           cmake --build build/DeskTap --config Release 2>&1 | Tee-Object -FilePath build/desktap-build.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
+      - name: Test the engine's decisions
+        shell: pwsh
+        run: |
+          & build/DeskTap/Release/DeskTapCoreTests.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
       - name: Set up .NET
         if: hashFiles('src/Desk/Desk.csproj') != ''
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      - name: Test Desk.exe logic
+        if: hashFiles('tests/Desk.Tests/Desk.Tests.csproj') != ''
+        shell: pwsh
+        run: |
+          dotnet test tests/Desk.Tests -c Release --logger "console;verbosity=normal" 2>&1 | Tee-Object -FilePath build/desk-tests.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Build Desk.exe
         if: hashFiles('src/Desk/Desk.csproj') != ''
