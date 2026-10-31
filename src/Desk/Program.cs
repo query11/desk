@@ -55,7 +55,10 @@ internal static class Program
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Application.ThreadException += (_, e) => Log.Error("Unhandled UI exception", e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
             Log.Error("Unhandled exception", e.ExceptionObject as Exception);
+            Log.Flush();
+        };
 
         ApplicationConfiguration.Initialize();
         using var app = new DeskApp(showWindow: !autostart);

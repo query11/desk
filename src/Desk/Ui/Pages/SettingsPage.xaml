@@ -109,6 +109,30 @@
                 MinWidth="120"
                 Content="打开" />
         </ui:CardControl>
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="DocumentArrowDown24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="导出诊断" />
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        FontSize="12"
+                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                        Text="把版本、系统和显示器信息、引擎状态、最近的错误以及 Desk 的日志打包成一个 zip，反馈问题时发给开发者。路径里的用户名会被替换。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:Button
+                x:Name="ExportDiagnosticsButton"
+                MinWidth="120"
+                Content="导出…" />
+        </ui:CardControl>
+        <ui:InfoBar
+            x:Name="ExportInfoBar"
+            Margin="0,0,0,4"
+            IsClosable="True" />
 
         <TextBlock
             Margin="0,28,0,8"

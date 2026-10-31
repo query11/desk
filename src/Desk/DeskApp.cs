@@ -628,6 +628,8 @@ internal sealed partial class DeskApp : ApplicationContext
         _tray.Visible = false;
         _tray.Dispose();
         _invoker.Dispose();
+        Log.Info("Exited");
+        Log.Flush();
         base.ExitThreadCore();
     }
 }

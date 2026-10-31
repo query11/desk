@@ -18,6 +18,7 @@ public partial class SettingsPage : Page
         AutostartSwitch.Unchecked += (_, _) => SetAutostart(false);
         ThemesFolderButton.Click += (_, _) => _app.OpenThemesFolder();
         LogsFolderButton.Click += (_, _) => _app.OpenLogsFolder();
+        ExportDiagnosticsButton.Click += (_, _) => ExportDiagnostics();
         ProjectButton.Click += (_, _) => DeskApp.OpenUrl(ProjectUrl);
         ExitButton.Click += (_, _) => _app.Exit();
 
@@ -29,6 +30,59 @@ public partial class SettingsPage : Page
             _app.CheckAutostart();
         };
         Unloaded += (_, _) => _app.StateChanged -= Refresh;
+    }
+
+    private async void ExportDiagnostics()
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "导出诊断",
+            FileName = $"Desk-诊断-{DateTime.Now:yyyyMMdd-HHmmss}.zip",
+            Filter = "Zip 文件|*.zip",
+            DefaultExt = ".zip",
+            AddExtension = true,
+        };
+        if (dialog.ShowDialog(System.Windows.Window.GetWindow(this)) != true)
+        {
+            return;
+        }
+
+        ExportDiagnosticsButton.IsEnabled = false;
+        ExportInfoBar.IsOpen = true;
+        ExportInfoBar.Severity = Wpf.Ui.Controls.InfoBarSeverity.Informational;
+        ExportInfoBar.Title = "正在导出诊断…";
+        ExportInfoBar.Message = "";
+        try
+        {
+            var result = await _app.ExportDiagnosticsAsync(dialog.FileName);
+            if (result.Success)
+            {
+                ExportInfoBar.Severity = result.Missing.Count == 0
+                    ? Wpf.Ui.Controls.InfoBarSeverity.Success
+                    : Wpf.Ui.Controls.InfoBarSeverity.Warning;
+                ExportInfoBar.Title = "诊断已导出";
+                ExportInfoBar.Message = result.Missing.Count == 0
+                    ? result.Path
+                    : $"{result.Path}\n以下内容没能读取，已在包里的 summary.json 中注明：{string.Join("；", result.Missing)}";
+            }
+            else
+            {
+                ExportInfoBar.Severity = Wpf.Ui.Controls.InfoBarSeverity.Error;
+                ExportInfoBar.Title = "导出失败";
+                ExportInfoBar.Message = result.Error ?? "";
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Error("Exporting diagnostics failed", e);
+            ExportInfoBar.Severity = Wpf.Ui.Controls.InfoBarSeverity.Error;
+            ExportInfoBar.Title = "导出失败";
+            ExportInfoBar.Message = e.Message;
+        }
+        finally
+        {
+            ExportDiagnosticsButton.IsEnabled = true;
+        }
     }
 
     private async void SetAutostart(bool enabled)
