@@ -19,7 +19,8 @@ internal sealed partial class DeskApp : ApplicationContext
     private readonly NotifyIcon _tray;
     private readonly MessageWindow _messages;
     private readonly WindowMonitor _windows;
-    private readonly AutoHideController _autoHide = new();
+    private readonly AutoHideController _autoHide = new(new WindowsAppBarState());
+    private readonly HostSession _host = HostSession.ForCurrentProcess();
     private readonly RuntimeWriter _runtime = new();
     private readonly EngineStatusReader _engineReports = new(Paths.StateDir);
     private readonly TargetManager? _targets;
@@ -34,6 +35,8 @@ internal sealed partial class DeskApp : ApplicationContext
     private readonly Icon _iconDisabled = TrayIcons.Create(false);
     private readonly EventWaitHandle _showWindowEvent;
     private readonly RegisteredWaitHandle _showWindowWait;
+    private readonly EventWaitHandle _restoreEvent;
+    private readonly RegisteredWaitHandle _restoreWait;
     private readonly DateTime _startedAt = DateTime.UtcNow;
 
     private Theme? _theme;
@@ -61,6 +64,19 @@ internal sealed partial class DeskApp : ApplicationContext
         // possible after sign-in.
         PrepareDirectories();
         LoadTheme();
+
+        // Every configuration names this Desk.exe; the engines restore by
+        // themselves when it's gone (also when it crashes or is killed).
+        Acl.AllowAppContainersToWatchThisProcess();
+        _runtime.Owner = _host.Lease;
+        _host.StartHeartbeat(TimeSpan.FromSeconds(5));
+        Log.Info($"Host session {_host.Lease.Session}");
+
+        // Auto-hide left on by a previous Desk that didn't exit normally.
+        if (_autoHide.Restore() != AutoHideRestore.NothingToDo)
+        {
+            Log.Info("Restored auto-hide changed by a previous run");
+        }
 
         bool arm64 = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture ==
                      System.Runtime.InteropServices.Architecture.Arm64;
@@ -143,6 +159,16 @@ internal sealed partial class DeskApp : ApplicationContext
         _showWindowEvent = new EventWaitHandle(false, EventResetMode.AutoReset, Program.ShowWindowEventName);
         _showWindowWait = ThreadPool.RegisterWaitForSingleObject(_showWindowEvent,
             (_, _) => RunOnUi(ShowWindow), null, Timeout.Infinite, executeOnlyOnce: false);
+
+        // Desk.exe --restore asks this one to restore and quit.
+        _restoreEvent = new EventWaitHandle(false, EventResetMode.AutoReset, WindowsRestoreEnvironment.RestoreEventName);
+        _restoreWait = ThreadPool.RegisterWaitForSingleObject(_restoreEvent, (_, _) => RunOnUi(() =>
+        {
+            Log.Info("Emergency restore requested");
+            _settings.Enabled = false;
+            _settings.Save();
+            Exit();
+        }), null, Timeout.Infinite, executeOnlyOnce: true);
 
         if (_engineError != null)
         {
@@ -568,16 +594,23 @@ internal sealed partial class DeskApp : ApplicationContext
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _showWindowWait.Unregister(null);
         _showWindowEvent.Dispose();
+        _restoreWait.Unregister(null);
+        _restoreEvent.Dispose();
 
         if (_windowLoaded)
         {
             Ui.UiHost.CloseWindow();
         }
 
-        // Tell the engine to put everything back.
+        // Tell the engine to put everything back. (If this doesn't happen,
+        // because Desk.exe crashed or was ended, the engines notice that
+        // their owner is gone and do the same.)
         _runtime.Write(RuntimeWriter.ExplorerFile, false, false, []);
         _runtime.Write(RuntimeWriter.StartMenuFile, false, false, []);
+        _host.MarkExiting();
+        _host.Dispose();
         _autoHide.SetForced(false);
+        _autoHide.Restore();
         _settings.Save();
 
         foreach (var watcher in _themeWatchers)

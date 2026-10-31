@@ -41,6 +41,46 @@ internal static class Acl
         }
     }
 
+    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    private const uint SYNCHRONIZE = 0x00100000;
+    private const uint DACL_SECURITY_INFORMATION = 0x00000004;
+
+    /// <summary>
+    /// Lets app containers (the Start menu engine) wait on this process, so
+    /// they notice right away when Desk.exe is gone instead of relying on the
+    /// heartbeat. Only SYNCHRONIZE and limited query rights are granted.
+    /// </summary>
+    public static void AllowAppContainersToWatchThisProcess()
+    {
+        try
+        {
+            IntPtr process = NativeMethods.GetCurrentProcess();
+            NativeMethods.GetKernelObjectSecurity(process, DACL_SECURITY_INFORMATION, null, 0, out uint needed);
+            var buffer = new byte[needed];
+            if (needed == 0 ||
+                !NativeMethods.GetKernelObjectSecurity(process, DACL_SECURITY_INFORMATION, buffer, needed, out _))
+            {
+                Log.Warn($"Could not read this process's security: {Marshal.GetLastWin32Error()}");
+                return;
+            }
+            var descriptor = new RawSecurityDescriptor(buffer, 0);
+            var dacl = descriptor.DiscretionaryAcl ?? new RawAcl(GenericAcl.AclRevision, 1);
+            dacl.InsertAce(dacl.Count, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed,
+                (int)(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION), AppContainerGroups[0], false, null));
+            descriptor.DiscretionaryAcl = dacl;
+            var updated = new byte[descriptor.BinaryLength];
+            descriptor.GetBinaryForm(updated, 0);
+            if (!NativeMethods.SetKernelObjectSecurity(process, DACL_SECURITY_INFORMATION, updated))
+            {
+                Log.Warn($"Could not let app containers watch this process: {Marshal.GetLastWin32Error()}");
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"Could not let app containers watch this process: {e.Message}");
+        }
+    }
+
     /// <summary>Gives the folder a low integrity label (like %LOCALAPPDATA%Low).</summary>
     public static void SetLowIntegrity(string directory)
     {

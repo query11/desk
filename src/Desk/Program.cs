@@ -7,12 +7,31 @@ internal static class Program
     /// <summary>Set by a second Desk.exe to ask the running one to show its window.</summary>
     public const string ShowWindowEventName = @"Local\Desk.Host.ShowWindow";
 
+    /// <summary>Held by the running tray app.</summary>
+    public const string HostMutexName = @"Local\Desk.Host";
+
     [STAThread]
     private static int Main(string[] args)
     {
-        bool autostart = args.Any(a => string.Equals(a, Autostart.Argument, StringComparison.OrdinalIgnoreCase));
+        bool Has(string argument) => args.Any(a => string.Equals(a, argument, StringComparison.OrdinalIgnoreCase));
+        bool autostart = Has(Autostart.Argument);
 
-        using var mutex = new Mutex(true, @"Local\Desk.Host", out bool created);
+        // Emergency restore: works without the tray app, the settings window
+        // or a responsive Desk.exe, so it comes before the single-instance check.
+        if (Has(EmergencyRestore.Argument))
+        {
+            Log.Init("restore");
+            var report = EmergencyRestore.Run(new WindowsRestoreEnvironment());
+            Log.Flush();
+            if (!Has("--quiet"))
+            {
+                MessageBox.Show(report.Describe(), report.Succeeded ? "Desk 已还原" : "Desk 还原未完成",
+                    MessageBoxButtons.OK, report.Succeeded ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            }
+            return report.Succeeded ? 0 : 1;
+        }
+
+        using var mutex = new Mutex(true, HostMutexName, out bool created);
         if (!created)
         {
             // Already running: bring its window up, unless this is the

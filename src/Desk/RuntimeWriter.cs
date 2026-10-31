@@ -35,6 +35,9 @@ internal sealed class RuntimeWriter
         _directory = directory ?? Paths.RuntimeDir;
     }
 
+    /// <summary>The Desk.exe named as the owner in every configuration; none for the emergency restore.</summary>
+    public HostLease? Owner { get; set; }
+
     /// <summary>The serial of the configuration last written for the process; 0 if none.</summary>
     public long LastSerial(string process) => _writtenSerials.GetValueOrDefault(process);
 
@@ -49,7 +52,8 @@ internal sealed class RuntimeWriter
     }
 
     /// <param name="requestedTheme">"Light" or "Dark" to force the theme of the window content.</param>
-    public void Write(string process, bool enabled, bool clickThrough, IReadOnlyList<RuleSpec> rules,
+    /// <returns>False when the file couldn't be written.</returns>
+    public bool Write(string process, bool enabled, bool clickThrough, IReadOnlyList<RuleSpec> rules,
         MonitorConfig? monitor = null, string? requestedTheme = null)
     {
         var rulesArray = new JsonArray();
@@ -74,6 +78,10 @@ internal sealed class RuntimeWriter
         {
             payload["recover"] = _recover;
         }
+        if (Owner != null)
+        {
+            payload["host"] = HostSession.ToJson(Owner);
+        }
         if (monitor != null)
         {
             payload["monitor"] = new JsonObject
@@ -97,7 +105,7 @@ internal sealed class RuntimeWriter
         string content = payload.ToJsonString();
         if (_lastContent.TryGetValue(process, out var last) && last == content)
         {
-            return;
+            return true;
         }
 
         long serial = NextSerial();
@@ -113,10 +121,12 @@ internal sealed class RuntimeWriter
             _lastContent[process] = content;
             _writtenSerials[process] = serial;
             Log.Info($"Wrote {process}.json: enabled={enabled}, {rules.Count} rules");
+            return true;
         }
         catch (Exception e)
         {
             Log.Error($"Could not write the runtime file for {process}", e);
+            return false;
         }
     }
 

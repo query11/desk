@@ -57,22 +57,7 @@ internal sealed class WindowsTargetPlatform : ITargetPlatform
     /// <summary>The process with its creation time (0 when it can't be read).</summary>
     public static ProcessInstance Instance(uint processId) => new(processId, ProcessStartTime(processId));
 
-    public static long ProcessStartTime(uint processId)
-    {
-        IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
-        if (process == IntPtr.Zero)
-        {
-            return 0;
-        }
-        try
-        {
-            return GetProcessTimes(process, out long creation, out _, out _, out _) ? creation : 0;
-        }
-        finally
-        {
-            CloseHandle(process);
-        }
-    }
+    public static long ProcessStartTime(uint processId) => NativeMethods.ProcessStartTime(processId);
 
     public IReadOnlyList<string>? FindLoadedTaps(ProcessInstance target)
     {

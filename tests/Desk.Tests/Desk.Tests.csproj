@@ -18,8 +18,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\src\Desk\AutoHideController.cs" Link="Production\AutoHideController.cs" />
+    <Compile Include="..\..\src\Desk\EmergencyRestore.cs" Link="Production\EmergencyRestore.cs" />
     <Compile Include="..\..\src\Desk\EngineStatus.cs" Link="Production\EngineStatus.cs" />
+    <Compile Include="..\..\src\Desk\HostSession.cs" Link="Production\HostSession.cs" />
     <Compile Include="..\..\src\Desk\Log.cs" Link="Production\Log.cs" />
+    <Compile Include="..\..\src\Desk\NativeMethods.cs" Link="Production\NativeMethods.cs" />
     <Compile Include="..\..\src\Desk\Paths.cs" Link="Production\Paths.cs" />
     <Compile Include="..\..\src\Desk\RestartGuard.cs" Link="Production\RestartGuard.cs" />
     <Compile Include="..\..\src\Desk\RuntimeWriter.cs" Link="Production\RuntimeWriter.cs" />

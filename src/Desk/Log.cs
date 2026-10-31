@@ -8,12 +8,13 @@ internal static class Log
     private static readonly object Lock = new();
     private static string? _path;
 
-    public static void Init()
+    /// <param name="name">desk for the tray app, restore for Desk.exe --restore.</param>
+    public static void Init(string name = "desk")
     {
         try
         {
             Directory.CreateDirectory(Paths.LogsDir);
-            _path = Path.Combine(Paths.LogsDir, "desk.log");
+            _path = Path.Combine(Paths.LogsDir, name + ".log");
             var info = new FileInfo(_path);
             if (info.Exists && info.Length > MaxSize)
             {
@@ -24,6 +25,11 @@ internal static class Log
         {
             _path = null;
         }
+    }
+
+    /// <summary>Writes out what is queued.</summary>
+    public static void Flush()
+    {
     }
 
     public static void Info(string message) => Write("INFO", message);

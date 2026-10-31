@@ -94,7 +94,7 @@ internal sealed class Settings
         return new Settings();
     }
 
-    public void Save()
+    public bool Save()
     {
         try
         {
@@ -102,10 +102,12 @@ internal sealed class Settings
             string temp = Paths.SettingsFile + ".tmp";
             File.WriteAllText(temp, JsonSerializer.Serialize(this, Options));
             File.Move(temp, Paths.SettingsFile, overwrite: true);
+            return true;
         }
         catch (Exception e)
         {
             Log.Warn($"Settings could not be saved: {e.Message}");
+            return false;
         }
     }
 }
