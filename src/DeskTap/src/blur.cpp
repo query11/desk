@@ -379,7 +379,7 @@ wuxm::LoadedImageSurface NoiseFor(wuc::Compositor const& compositor, float densi
     return noise.front().surface;
 }
 
-winrt::Windows::UI::Color FallbackColor(const BlurParams& params) {
+winrt::Windows::UI::Color SolidFallbackColor(const BlurParams& params) {
     auto color = params.fallback.value_or(params.tint);
     if (!params.fallback) {
         color.A = std::max<uint8_t>(color.A, 0xE6);
@@ -499,7 +499,7 @@ HRESULT DeskBlurBrush::UpdateParams(const BlurParams* params) noexcept try {
     if (m_usingFallback) {
         if (auto color = brush.try_as<wuc::CompositionColorBrush>();
             color && ShouldUseFallback()) {
-            color.Color(FallbackColor(m_params));
+            color.Color(SolidFallbackColor(m_params));
             status::Count(status::kBlurInPlaceUpdates);
             return S_OK;
         }
@@ -539,7 +539,7 @@ bool DeskBlurBrush::ShouldUseFallback() const {
 wuc::CompositionBrush DeskBlurBrush::CreateFallbackBrush() {
     m_usingFallback = true;
     m_animatable = false;
-    return m_compositor.CreateColorBrush(FallbackColor(m_params));
+    return m_compositor.CreateColorBrush(SolidFallbackColor(m_params));
 }
 
 wuc::CompositionBrush DeskBlurBrush::CreateEffectBrush() {
