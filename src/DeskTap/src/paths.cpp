@@ -54,6 +54,10 @@ std::wstring LogsDir() {
     return BaseDir() + L"\\logs";
 }
 
+std::wstring StateDir() {
+    return BaseDir() + L"\\state";
+}
+
 std::wstring ProcessName() {
     static std::wstring name = [] {
         auto path = GetModuleFileNameString(nullptr);

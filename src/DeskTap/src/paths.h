@@ -19,6 +19,9 @@ std::wstring RuntimeDir();
 // <base>\logs.
 std::wstring LogsDir();
 
+// <base>\state: the engine's status reports, writable from app containers.
+std::wstring StateDir();
+
 // The lowercase file name of the current process, e.g. "explorer.exe".
 std::wstring ProcessName();
 

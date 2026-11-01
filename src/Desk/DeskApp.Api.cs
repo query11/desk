@@ -115,55 +115,97 @@ internal sealed partial class DeskApp
         set => ChangeSetting(() => _settings.MonitorMemory = value);
     }
 
-    public bool AutostartEnabled => Autostart.IsEnabled;
+    /// <summary>What was found the last time autostart was checked or changed.</summary>
+    public AutostartStatus AutostartInfo { get; private set; } = AutostartStatus.Unchecked;
 
-    /// <summary>Turns autostart on or off in the background (it starts schtasks.exe).</summary>
-    public Task SetAutostartAsync(bool enabled) =>
-        Task.Run(() => Autostart.Set(_settings, enabled))
-            .ContinueWith(_ => RunOnUi(() =>
-            {
-                _settings.Save();
-                StateChanged?.Invoke();
-            }));
+    /// <summary>Why the last change failed, or a warning about it; null when there is nothing to say.</summary>
+    public string? AutostartMessage { get; private set; }
 
-    public EngineStatus TaskbarStatus
+    public bool AutostartMessageIsError { get; private set; }
+
+    /// <summary>
+    /// Turns autostart on or off in the background (it starts schtasks.exe)
+    /// and reports what is actually set up afterwards.
+    /// </summary>
+    public async Task<AutostartResult> SetAutostartAsync(bool enabled)
     {
-        get
+        // A user's choice; the start-up check won't change it any more.
+        _settings.AutostartConfigured = true;
+        AutostartResult result;
+        try
         {
-            if (_targets == null)
-            {
-                return EngineStatus.Unavailable;
-            }
-            if (!_settings.Enabled)
-            {
-                return EngineStatus.Off;
-            }
-            return _targets.ExplorerInjected ? EngineStatus.Active : EngineStatus.Connecting;
+            result = await Task.Run(() => _autostart.Set(enabled));
         }
+        catch (Exception e)
+        {
+            Log.Error("Changing autostart failed", e);
+            AutostartMessage = e.Message;
+            AutostartMessageIsError = true;
+            StateChanged?.Invoke();
+            throw;
+        }
+        ApplyAutostart(result);
+        return result;
     }
 
-    public EngineStatus StartMenuStatus
+    private long _autostartTicket;
+
+    /// <summary>Looks at what is set up now, in the background (the settings page shows it).</summary>
+    public void CheckAutostart()
     {
-        get
+        Task.Run(_autostart.Inspect).ContinueWith(task =>
         {
-            if (_targets == null)
+            if (task.IsCompletedSuccessfully)
             {
-                return EngineStatus.Unavailable;
+                RunOnUi(() => ApplyAutostart(task.Result));
             }
-            if (!_settings.Enabled || !_settings.StyleStartMenu)
+            else
             {
-                return EngineStatus.Off;
+                Log.Error("Checking autostart failed", task.Exception);
             }
-            if (_targets.StartMenuInjected)
-            {
-                return EngineStatus.Active;
-            }
-            return _targets.StartMenuPending ? EngineStatus.Waiting : EngineStatus.Connecting;
-        }
+        });
     }
+
+    /// <summary>Takes a result on the UI thread, unless a newer one already arrived.</summary>
+    private void ApplyAutostart(AutostartResult result)
+    {
+        if (result.Ticket < _autostartTicket)
+        {
+            return;
+        }
+        _autostartTicket = result.Ticket;
+        AutostartInfo = result.Status;
+        AutostartMessage = result.Error ?? result.Warning;
+        AutostartMessageIsError = result.Error != null;
+        if (result.Configured)
+        {
+            _settings.AutostartConfigured = true;
+        }
+        if (result.Status.State == AutostartState.On)
+        {
+            _settings.AutostartPath = Environment.ProcessPath;
+        }
+        _settings.Save();
+        StateChanged?.Invoke();
+    }
+
+    /// <summary>Whether the taskbar is styled, with the engine's own report as evidence.</summary>
+    public TargetStatus Taskbar => _targets == null
+        ? new TargetStatus(EngineStatus.Unavailable)
+        : EngineStatusEvaluator.Evaluate(_settings.Enabled, _targets.Explorer,
+            _engineReports.Read(RuntimeWriter.ExplorerFile, _targets.Explorer.Process),
+            _runtime.LastSerial(RuntimeWriter.ExplorerFile), DateTime.UtcNow);
+
+    public TargetStatus StartMenu => _targets == null
+        ? new TargetStatus(EngineStatus.Unavailable)
+        : EngineStatusEvaluator.Evaluate(_settings.Enabled && _settings.StyleStartMenu, _targets.StartMenu,
+            _engineReports.Read(RuntimeWriter.StartMenuFile, _targets.StartMenu.Process),
+            _runtime.LastSerial(RuntimeWriter.StartMenuFile), DateTime.UtcNow);
+
+    public EngineStatus TaskbarStatus => Taskbar.Status;
 
     /// <summary>Explorer still runs the engine of an older Desk version.</summary>
-    public bool ExplorerOutdated => _targets?.ExplorerOutdated == true;
+    public bool ExplorerOutdated => _targets?.Explorer.Outdated == true || TaskbarStatus == EngineStatus.Outdated;
 
     public IReadOnlyList<ThemeInfo> GetThemes()
     {
@@ -181,50 +223,49 @@ internal sealed partial class DeskApp
 
     public bool HasParameter(string name) => _theme?.HasConstant(name) == true;
 
+    /// <summary>
+    /// The user's changes to the loaded theme. Kept per theme: switching to
+    /// another theme shows its own values, switching back restores these.
+    /// </summary>
+    private IReadOnlyDictionary<string, string> Overrides =>
+        _theme == null ? new Dictionary<string, string>() : _settings.OverridesFor(_theme.Id);
+
     /// <summary>A numeric theme constant as currently used (with the user's changes).</summary>
     public double? GetParameter(ParameterScope scope, string name)
     {
-        string? text = _theme?.GetConstant(name, IsLight(scope), _settings.Overrides);
+        string? text = _theme?.GetConstant(name, IsLight(scope), Overrides);
         return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
             ? value
             : null;
     }
 
     /// <summary>
-    /// Changes a theme constant. With <paramref name="perMode"/> the change
-    /// only applies to the current light or dark variant (colors need
-    /// different values in each).
+    /// Changes a constant of the loaded theme. With <paramref name="perMode"/>
+    /// the change only applies to the current light or dark variant (colors
+    /// need different values in each).
     /// </summary>
     public void SetParameter(ParameterScope scope, string name, double value, bool perMode)
     {
+        if (_theme == null)
+        {
+            return;
+        }
         string text = value.ToString("0.###", CultureInfo.InvariantCulture);
-        if (perMode)
-        {
-            _settings.Overrides[$"{name}@{(IsLight(scope) ? "light" : "dark")}"] = text;
-        }
-        else
-        {
-            _settings.Overrides.Remove($"{name}@light");
-            _settings.Overrides.Remove($"{name}@dark");
-            _settings.Overrides[name] = text;
-        }
+        _settings.SetOverride(_theme.Id, name, text, perMode ? IsLight(scope) : null);
         ApplySoon();
     }
 
     public bool HasChangedParameters(IEnumerable<string> names) =>
-        names.Any(n => _settings.Overrides.ContainsKey(n) ||
-                       _settings.Overrides.ContainsKey($"{n}@light") ||
-                       _settings.Overrides.ContainsKey($"{n}@dark"));
+        _theme != null && _settings.HasOverrides(_theme.Id, names);
 
-    /// <summary>Goes back to the theme's own values.</summary>
+    /// <summary>Goes back to the theme's own values for these constants, in this theme only.</summary>
     public void ResetParameters(IEnumerable<string> names)
     {
-        foreach (var name in names)
+        if (_theme == null)
         {
-            _settings.Overrides.Remove(name);
-            _settings.Overrides.Remove($"{name}@light");
-            _settings.Overrides.Remove($"{name}@dark");
+            return;
         }
+        _settings.ResetOverrides(_theme.Id, names);
         _settings.Save();
         Apply();
         StateChanged?.Invoke();
@@ -262,7 +303,9 @@ internal sealed partial class DeskApp
     public void Reapply()
     {
         LoadTheme();
-        _runtime.Invalidate();
+        // Rewrites both files with a new serial, and asks engines whose
+        // initialization failed to try again now.
+        _runtime.RequestRecovery();
         _targets?.Reset();
         _fastTicksUntil = DateTime.UtcNow.AddSeconds(30);
         Apply();
@@ -272,7 +315,7 @@ internal sealed partial class DeskApp
 
     public void RestartExplorer()
     {
-        _restartRequestedAt = DateTime.UtcNow;
+        _restartGuard.RestartRequested(DateTime.UtcNow);
         _fastTicksUntil = DateTime.UtcNow.AddSeconds(60);
         try
         {

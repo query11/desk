@@ -45,8 +45,19 @@ struct MonitorConfig {
 };
 
 struct Config {
+    // Given by Desk.exe, reported back once applied.
     uint64_t serial = 0;
+    // The engine's own counter of what it applies; changes with the serial
+    // and when the host is lost (the same serial, turned off).
+    uint64_t revision = 0;
     bool enabled = false;
+    // The Desk.exe that owns this configuration; empty for none (older Desk
+    // versions, the emergency restore).
+    std::wstring hostSession;
+    DWORD hostPid = 0;
+    uint64_t hostStart = 0;  // Process creation time (FILETIME).
+    // Changed by Desk.exe to ask for a retry of a failed initialization.
+    uint64_t recover = 0;
     bool clickThrough = false;
     std::vector<Rule> rules;
     MonitorConfig monitor;

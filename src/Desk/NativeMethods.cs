@@ -39,6 +39,8 @@ internal static class NativeMethods
     public const uint PROCESS_VM_WRITE = 0x0020;
     public const uint PROCESS_QUERY_INFORMATION = 0x0400;
     public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    public const uint PROCESS_TERMINATE = 0x0001;
+    public const uint SYNCHRONIZE = 0x00100000;
     public const uint MEM_COMMIT = 0x1000;
     public const uint MEM_RESERVE = 0x2000;
     public const uint MEM_RELEASE = 0x8000;
@@ -61,6 +63,19 @@ internal static class NativeMethods
     {
         public int Left, Top, Right, Bottom;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT
+    {
+        public int X, Y;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromPoint(POINT point, uint flags);
+
+    /// <summary>MDT_EFFECTIVE_DPI = 0.</summary>
+    [DllImport("shcore.dll")]
+    public static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint dpiX, out uint dpiY);
 
     [StructLayout(LayoutKind.Sequential)]
     public struct APPBARDATA
@@ -167,6 +182,13 @@ internal static class NativeMethods
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GetExitCodeThread(IntPtr thread, out uint exitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel,
+        out long user);
+
     [DllImport("psapi.dll", SetLastError = true)]
     public static extern bool EnumProcessModulesEx(IntPtr process, [Out] IntPtr[] modules, int size, out int needed, uint filter);
 
@@ -188,11 +210,39 @@ internal static class NativeMethods
     [DllImport("kernel32.dll")]
     public static extern IntPtr LocalFree(IntPtr memory);
 
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetCurrentProcess();
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool GetKernelObjectSecurity(IntPtr handle, uint requested, byte[]? descriptor, uint length,
+        out uint needed);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool SetKernelObjectSecurity(IntPtr handle, uint information, byte[] descriptor);
+
     public static string GetClassName(IntPtr hwnd)
     {
         var buffer = new char[256];
         int length = GetClassNameW(hwnd, buffer, buffer.Length);
         return length > 0 ? new string(buffer, 0, length) : string.Empty;
+    }
+
+    /// <summary>The creation time (FILETIME) of a process, 0 when it can't be read.</summary>
+    public static long ProcessStartTime(uint processId)
+    {
+        IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+        if (process == IntPtr.Zero)
+        {
+            return 0;
+        }
+        try
+        {
+            return GetProcessTimes(process, out long creation, out _, out _, out _) ? creation : 0;
+        }
+        finally
+        {
+            CloseHandle(process);
+        }
     }
 
     public static bool IsCloaked(IntPtr hwnd)

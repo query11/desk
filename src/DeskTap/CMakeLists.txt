@@ -14,6 +14,7 @@ add_library(DeskTap SHARED
     src/blur.cpp
     src/clickthrough.cpp
     src/config.cpp
+    src/control.cpp
     src/dllmain.cpp
     src/effects.cpp
     src/engine.cpp
@@ -23,6 +24,7 @@ add_library(DeskTap SHARED
     src/paths.cpp
     src/regpatch.cpp
     src/rules.cpp
+    src/status.cpp
     src/surface.cpp
     src/tap.cpp
     src/values.cpp
@@ -68,3 +70,15 @@ target_link_libraries(DeskTap PRIVATE
 )
 
 set_target_properties(DeskTap PROPERTIES OUTPUT_NAME "DeskTap")
+
+# Unit tests for the decisions in src/core, which don't depend on Windows.
+option(DESKTAP_BUILD_TESTS "Build DeskTapCoreTests" ON)
+if(DESKTAP_BUILD_TESTS)
+    add_executable(DeskTapCoreTests tests/core_tests.cpp)
+    target_include_directories(DeskTapCoreTests PRIVATE src)
+    if(MSVC)
+        target_compile_options(DeskTapCoreTests PRIVATE /W3 /permissive- /utf-8 /EHsc)
+    endif()
+    enable_testing()
+    add_test(NAME DeskTapCoreTests COMMAND DeskTapCoreTests)
+endif()

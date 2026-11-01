@@ -11,7 +11,12 @@ namespace desk::monitor {
 // A Taskbar.TaskbarFrame was reported; the island goes into its parent.
 void OnTaskbarFrameAdded(wux::FrameworkElement const& frame);
 
-// The configuration changed: adds, updates or removes this thread's islands.
+// The configuration changed: adds, updates or removes this thread's islands,
+// and starts or stops sampling what they show.
 void OnConfigApplied(const Config& config);
+
+// The thread's dispatcher is shutting down: removes its islands and stops
+// its sampling while XAML is still usable.
+void OnThreadShutdown();
 
 }  // namespace desk::monitor

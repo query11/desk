@@ -6,25 +6,6 @@ using Microsoft.Win32;
 
 namespace Desk;
 
-/// <summary>How far the engine got in a target process.</summary>
-internal enum EngineStatus
-{
-    /// <summary>Styling is turned off for this target.</summary>
-    Off,
-
-    /// <summary>Looking for the process or loading the engine into it.</summary>
-    Connecting,
-
-    /// <summary>The engine is loaded and applies the theme.</summary>
-    Active,
-
-    /// <summary>Loaded once the process wakes up (the Start menu is opened).</summary>
-    Waiting,
-
-    /// <summary>The engine can't run (missing DeskTap.dll, unsupported system).</summary>
-    Unavailable,
-}
-
 /// <summary>
 /// The tray application: owns the settings, the theme and the engine, and
 /// opens the settings window on demand.
@@ -38,26 +19,32 @@ internal sealed partial class DeskApp : ApplicationContext
     private readonly NotifyIcon _tray;
     private readonly MessageWindow _messages;
     private readonly WindowMonitor _windows;
-    private readonly AutoHideController _autoHide = new();
+    private readonly AutoHideController _autoHide = new(new WindowsAppBarState());
+    private readonly HostSession _host = HostSession.ForCurrentProcess();
+    private readonly Autostart _autostart = new(new WindowsAutostartBackend());
     private readonly RuntimeWriter _runtime = new();
+    private readonly EngineStatusReader _engineReports = new(Paths.StateDir);
     private readonly TargetManager? _targets;
     private readonly string? _engineError;
+    private readonly string? _dllPath;
     private readonly System.Windows.Forms.Timer _timer = new();
     private readonly System.Windows.Forms.Timer _themeReload = new() { Interval = 300 };
     private readonly System.Windows.Forms.Timer _applySoon = new() { Interval = 100 };
     private readonly List<FileSystemWatcher> _themeWatchers = [];
-    private readonly List<DateTime> _explorerRestarts = [];
+    private readonly RestartGuard _restartGuard = new();
     private readonly Icon _iconEnabled = TrayIcons.Create(true);
     private readonly Icon _iconDisabled = TrayIcons.Create(false);
     private readonly EventWaitHandle _showWindowEvent;
     private readonly RegisteredWaitHandle _showWindowWait;
+    private readonly EventWaitHandle _restoreEvent;
+    private readonly RegisteredWaitHandle _restoreWait;
     private readonly DateTime _startedAt = DateTime.UtcNow;
 
     private Theme? _theme;
     private bool _lightMode;
-    private DateTime _restartRequestedAt = DateTime.MinValue;
     private DateTime _fastTicksUntil;
-    private (EngineStatus Taskbar, EngineStatus StartMenu, bool Outdated) _lastStatus;
+    private (TargetStatus Taskbar, TargetStatus StartMenu) _lastStatus;
+    private DateTime _nextStatusCleanup;
     private bool _windowLoaded;
     private bool _outdatedNoticeShown;
     private bool _exiting;
@@ -79,6 +66,19 @@ internal sealed partial class DeskApp : ApplicationContext
         PrepareDirectories();
         LoadTheme();
 
+        // Every configuration names this Desk.exe; the engines restore by
+        // themselves when it's gone (also when it crashes or is killed).
+        Acl.AllowAppContainersToWatchThisProcess();
+        _runtime.Owner = _host.Lease;
+        _host.StartHeartbeat(TimeSpan.FromSeconds(5));
+        Log.Info($"Host session {_host.Lease.Session}");
+
+        // Auto-hide left on by a previous Desk that didn't exit normally.
+        if (_autoHide.Restore() != AutoHideRestore.NothingToDo)
+        {
+            Log.Info("Restored auto-hide changed by a previous run");
+        }
+
         bool arm64 = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture ==
                      System.Runtime.InteropServices.Architecture.Arm64;
         try
@@ -88,7 +88,15 @@ internal sealed partial class DeskApp : ApplicationContext
                 throw new PlatformNotSupportedException("ARM64 Windows is not supported yet");
             }
             var injector = TapInjector.Deploy();
-            _targets = new TargetManager(injector, SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext());
+            _dllPath = injector.DllPath;
+            var ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            // The intent is read when an attempt would start, so that a
+            // change made by an event in the same tick (crash protection)
+            // counts right away.
+            _targets = new TargetManager(new WindowsTargetPlatform(injector), new ThreadPoolScheduler(ui),
+                TimeProvider.System, injector.DllPath,
+                explorerWanted: () => !_exiting && _settings.Enabled,
+                startMenuWanted: () => !_exiting && _settings.Enabled && _settings.StyleStartMenu);
             _targets.ExplorerChanged += OnExplorerChanged;
         }
         catch (Exception e)
@@ -153,6 +161,16 @@ internal sealed partial class DeskApp : ApplicationContext
         _showWindowWait = ThreadPool.RegisterWaitForSingleObject(_showWindowEvent,
             (_, _) => RunOnUi(ShowWindow), null, Timeout.Infinite, executeOnlyOnce: false);
 
+        // Desk.exe --restore asks this one to restore and quit.
+        _restoreEvent = new EventWaitHandle(false, EventResetMode.AutoReset, WindowsRestoreEnvironment.RestoreEventName);
+        _restoreWait = ThreadPool.RegisterWaitForSingleObject(_restoreEvent, (_, _) => RunOnUi(() =>
+        {
+            Log.Info("Emergency restore requested");
+            _settings.Enabled = false;
+            _settings.Save();
+            Exit();
+        }), null, Timeout.Infinite, executeOnlyOnce: true);
+
         if (_engineError != null)
         {
             Notify("Desk 无法启动引擎", _engineError);
@@ -171,11 +189,13 @@ internal sealed partial class DeskApp : ApplicationContext
         }
 
         // Slow checks, off the UI thread and after the engine got its turn.
+        bool autostartConfigured = _settings.AutostartConfigured;
         Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ =>
         {
+            AutostartResult? autostart = null;
             try
             {
-                Autostart.Refresh(_settings);
+                autostart = _autostart.Refresh(autostartConfigured);
             }
             catch (Exception e)
             {
@@ -184,7 +204,10 @@ internal sealed partial class DeskApp : ApplicationContext
             var conflicts = FindConflicts();
             RunOnUi(() =>
             {
-                _settings.Save();
+                if (autostart != null)
+                {
+                    ApplyAutostart(autostart);
+                }
                 Conflicts = conflicts;
                 if (conflicts.Count > 0)
                 {
@@ -204,6 +227,11 @@ internal sealed partial class DeskApp : ApplicationContext
             Directory.CreateDirectory(Paths.LogsDir);
             Acl.GrantAppContainers(Paths.LogsDir, FileSystemRights.Modify);
             Acl.SetLowIntegrity(Paths.LogsDir);
+            // The engines report their status here, the Start menu's from an
+            // app container.
+            Directory.CreateDirectory(Paths.StateDir);
+            Acl.GrantAppContainers(Paths.StateDir, FileSystemRights.Modify);
+            Acl.SetLowIntegrity(Paths.StateDir);
             Directory.CreateDirectory(Paths.UserThemesDir);
         }
         catch (Exception e)
@@ -334,7 +362,7 @@ internal sealed partial class DeskApp : ApplicationContext
         bool merge = maximized && _settings.MaximizeMode == MaximizeMode.Merge;
 
         var taskbarRules = enabled
-            ? _theme!.Compile(ThemeTarget.Taskbar, _lightMode, merge, _settings.Overrides)
+            ? _theme!.Compile(ThemeTarget.Taskbar, _lightMode, merge, Overrides)
             : [];
         var monitor = MonitorFor(enabled, merge);
         if (monitor.Enabled)
@@ -348,7 +376,7 @@ internal sealed partial class DeskApp : ApplicationContext
 
         bool startMenu = enabled && _settings.StyleStartMenu;
         var startRules = startMenu
-            ? _theme!.Compile(ThemeTarget.StartMenu, StartMenuLight, false, _settings.Overrides)
+            ? _theme!.Compile(ThemeTarget.StartMenu, StartMenuLight, false, Overrides)
             : [];
         string? requestedTheme = null;
         if (startMenu && _settings.StartMenuScheme != StartMenuScheme.System)
@@ -378,7 +406,7 @@ internal sealed partial class DeskApp : ApplicationContext
         }
 
         string Color(string name, string light, string dark) =>
-            _theme?.GetConstant(name, _lightMode, _settings.Overrides) ?? (_lightMode ? light : dark);
+            _theme?.GetConstant(name, _lightMode, Overrides) ?? (_lightMode ? light : dark);
 
         return new MonitorConfig(
             show,
@@ -412,7 +440,7 @@ internal sealed partial class DeskApp : ApplicationContext
 
     private void Tick()
     {
-        _targets?.Tick(_settings.Enabled, _settings.Enabled && _settings.StyleStartMenu);
+        _targets?.Tick();
         if (_tray == null)
         {
             return; // Still starting up.
@@ -420,47 +448,57 @@ internal sealed partial class DeskApp : ApplicationContext
 
         // Poll quickly while waiting for the taskbar after sign-in or an
         // explorer restart, slowly afterwards.
-        bool fast = DateTime.UtcNow < _fastTicksUntil && _targets is { ExplorerInjected: false };
+        bool fast = DateTime.UtcNow < _fastTicksUntil && TaskbarStatus != EngineStatus.Active;
         int interval = fast ? 250 : 2000;
         if (_timer.Interval != interval)
         {
             _timer.Interval = interval;
         }
 
-        var status = (TaskbarStatus, StartMenuStatus, ExplorerOutdated);
+        var status = (Taskbar, StartMenu);
         if (status != _lastStatus)
         {
-            _lastStatus = status;
-            if (status.Item1 == EngineStatus.Active && DateTime.UtcNow - _startedAt < TimeSpan.FromMinutes(5))
+            if (status.Taskbar.Status != _lastStatus.Taskbar?.Status ||
+                status.StartMenu.Status != _lastStatus.StartMenu?.Status)
             {
-                Log.Info($"Taskbar engine loaded {(DateTime.UtcNow - _startedAt).TotalMilliseconds:0} ms after start");
+                Log.Info($"Status: taskbar {status.Taskbar.Status}{Suffix(status.Taskbar)}, " +
+                         $"Start menu {status.StartMenu.Status}{Suffix(status.StartMenu)}");
             }
-            if (status.Item3 && !_outdatedNoticeShown)
+            if (status.Taskbar.Status == EngineStatus.Active && _lastStatus.Taskbar?.Status != EngineStatus.Active &&
+                DateTime.UtcNow - _startedAt < TimeSpan.FromMinutes(5))
+            {
+                Log.Info($"Taskbar engine loaded and applied {(DateTime.UtcNow - _startedAt).TotalMilliseconds:0} ms after start");
+            }
+            _lastStatus = status;
+            if (status.Taskbar.Status == EngineStatus.Outdated && !_outdatedNoticeShown)
             {
                 _outdatedNoticeShown = true;
                 Notify("Desk 已更新", "资源管理器里还在运行旧版本的引擎，重启资源管理器后新效果才会完全生效（设置窗口和托盘菜单里都可以重启）。");
             }
             StatusChanged?.Invoke();
         }
+
+        if (DateTime.UtcNow >= _nextStatusCleanup)
+        {
+            _nextStatusCleanup = DateTime.UtcNow.AddMinutes(10);
+            _engineReports.CleanUp((pid, start) =>
+                WindowsTargetPlatform.ProcessStartTime(pid) is var actual && actual != 0 &&
+                (start == 0 || actual == start));
+        }
     }
 
-    private void OnExplorerChanged(uint processId)
+    private static string Suffix(TargetStatus status) => status.Detail is { } detail ? $" ({detail})" : "";
+
+    private void OnExplorerChanged(ProcessInstance process)
     {
         _fastTicksUntil = DateTime.UtcNow.AddSeconds(60);
-        if (DateTime.UtcNow - _restartRequestedAt < TimeSpan.FromSeconds(20))
-        {
-            return;
-        }
 
         // Explorer restarting again and again right after DeskTap was loaded
-        // most likely means the engine crashes it: stop.
-        var now = DateTime.UtcNow;
-        _explorerRestarts.Add(now);
-        _explorerRestarts.RemoveAll(t => now - t > TimeSpan.FromMinutes(3));
-        Log.Warn($"Explorer restarted ({_explorerRestarts.Count} times in 3 minutes)");
-        if (_explorerRestarts.Count >= 3 && _settings.Enabled)
+        // most likely means the engine crashes it: stop. This runs inside
+        // the target manager's tick, which reads the setting again before it
+        // would load the engine into the new explorer.
+        if (_restartGuard.OnRestart(DateTime.UtcNow) && _settings.Enabled)
         {
-            _explorerRestarts.Clear();
             SetEnabled(false, notify: false);
             Notify("Desk 已自动停用", "资源管理器在短时间内重启了多次，为了安全已停用美化。可以在设置窗口里重新启用，并把日志发给开发者。");
         }
@@ -470,6 +508,10 @@ internal sealed partial class DeskApp : ApplicationContext
     {
         _settings.Enabled = enabled;
         _settings.Save();
+        if (!enabled)
+        {
+            _targets?.Cancel();
+        }
         Apply();
         Tick();
         StateChanged?.Invoke();
@@ -558,16 +600,23 @@ internal sealed partial class DeskApp : ApplicationContext
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _showWindowWait.Unregister(null);
         _showWindowEvent.Dispose();
+        _restoreWait.Unregister(null);
+        _restoreEvent.Dispose();
 
         if (_windowLoaded)
         {
             Ui.UiHost.CloseWindow();
         }
 
-        // Tell the engine to put everything back.
+        // Tell the engine to put everything back. (If this doesn't happen,
+        // because Desk.exe crashed or was ended, the engines notice that
+        // their owner is gone and do the same.)
         _runtime.Write(RuntimeWriter.ExplorerFile, false, false, []);
         _runtime.Write(RuntimeWriter.StartMenuFile, false, false, []);
+        _host.MarkExiting();
+        _host.Dispose();
         _autoHide.SetForced(false);
+        _autoHide.Restore();
         _settings.Save();
 
         foreach (var watcher in _themeWatchers)
@@ -579,6 +628,8 @@ internal sealed partial class DeskApp : ApplicationContext
         _tray.Visible = false;
         _tray.Dispose();
         _invoker.Dispose();
+        Log.Info("Exited");
+        Log.Flush();
         base.ExitThreadCore();
     }
 }

@@ -8,11 +8,14 @@
 // GPL-3.0).
 #include "pch.h"
 #include "engine.h"
+#include "blur.h"
 #include "clickthrough.h"
 #include "config.h"
+#include "control.h"
 #include "log.h"
 #include "monitor.h"
 #include "paths.h"
+#include "status.h"
 #include "surface.h"
 #include "values.h"
 
@@ -38,23 +41,32 @@ struct TrackedElement {
     winrt::weak_ref<wux::FrameworkElement> element;
     std::wstring diagnosticsType;
     std::vector<AppliedProperty> properties;
-    uint64_t serial = UINT64_MAX;
+    uint64_t revision = UINT64_MAX;
 };
 
 using ConditionValues =
     std::vector<std::pair<wux::DependencyProperty, wf::IInspectable>>;
+using StyleList = std::shared_ptr<const std::vector<ResolvedStyle>>;
+
+// Resolved styles that outlive a configuration, by type and style text. A
+// slider changes one constant; the rules that don't use it resolve to the
+// same values, so they aren't parsed again.
+using StyleTextCache = std::unordered_map<std::wstring, StyleList>;
+constexpr size_t kMaxStyleTexts = 256;
 
 // Resolved values for one configuration. Held by shared_ptr so that a config
 // change in the middle of applying can't free values still in use.
 struct Cache {
-    uint64_t serial = 0;
-    std::unordered_map<std::wstring, std::vector<ResolvedStyle>> styles;
+    uint64_t revision = 0;
+    std::unordered_map<std::wstring, StyleList> styles;
     std::unordered_map<std::wstring, ConditionValues> conditions;
+    StyleTextCache* byText = nullptr;  // The thread's, outlives this.
 };
 
 struct ThreadState {
     std::unordered_map<InstanceHandle, TrackedElement> elements;
     std::shared_ptr<Cache> cache;
+    StyleTextCache stylesByText;
     int modifying = 0;
     std::vector<InstanceHandle> pendingRemovals;
     size_t addsSincePrune = 0;
@@ -64,10 +76,21 @@ struct ThreadState {
     wux::ElementTheme originalTheme = wux::ElementTheme::Default;
     std::optional<wux::ElementTheme> wantedTheme;
     int64_t themeCallbackToken = 0;
-    uint64_t themeSerial = UINT64_MAX;
+    uint64_t themeRevision = UINT64_MAX;
+
+    // What this thread reports to Desk.exe (status.h): the revision it fully
+    // applied, and styles that failed for it.
+    uint64_t appliedRevision = 0;
+    uint64_t appliedSerial = 0;
+    uint32_t errors = 0;
+    bool reportScheduled = false;
 };
 
-// Each XAML UI thread has its own elements; all access happens on that thread.
+// Each XAML UI thread has its own elements; all access happens on that
+// thread. Created when the thread reports its first element, deleted on the
+// thread when its dispatcher shuts down (OnThreadShutdown), so the XAML
+// objects it holds are released where they belong, while XAML still works.
+// Callbacks that arrive later find no state and do nothing.
 thread_local ThreadState* t_state = nullptr;
 
 struct UiThread {
@@ -76,8 +99,23 @@ struct UiThread {
     winrt::Windows::UI::Core::CoreDispatcher core{nullptr};
 };
 
+// Threads to reach for configuration changes. A thread leaves when its
+// dispatcher shuts down or refuses work.
 std::mutex g_threadsMutex;
 std::vector<UiThread> g_threads;
+
+void ForgetThread(DWORD id) {
+    {
+        std::lock_guard lock(g_threadsMutex);
+        g_threads.erase(std::remove_if(g_threads.begin(), g_threads.end(),
+                                       [id](const UiThread& t) { return t.id == id; }),
+                        g_threads.end());
+    }
+    status::ForgetThread(id);
+    control::Wake();
+}
+
+void OnThreadShutdown();
 
 struct ModifyingScope {
     explicit ModifyingScope(ThreadState& state) : state(state) {
@@ -90,11 +128,24 @@ struct ModifyingScope {
 ThreadState& StateFor(wux::FrameworkElement const& element) {
     if (!t_state) {
         t_state = new ThreadState();
+        status::Count(status::kUiThreadsSeen);
 
         UiThread thread;
         thread.id = GetCurrentThreadId();
         thread.queue = DispatcherQueue::GetForCurrentThread();
-        if (!thread.queue) {
+        if (thread.queue) {
+            try {
+                thread.queue.ShutdownStarting([](auto&&, auto&&) {
+                    try {
+                        OnThreadShutdown();
+                    } catch (...) {
+                    }
+                });
+            } catch (...) {
+                DLOG(L"Can't watch the dispatcher's shutdown: %08X",
+                     winrt::to_hresult().value);
+            }
+        } else {
             try {
                 thread.core = element.Dispatcher();
             } catch (...) {
@@ -109,9 +160,10 @@ ThreadState& StateFor(wux::FrameworkElement const& element) {
 }
 
 std::shared_ptr<Cache> CacheFor(ThreadState& state, const Config& config) {
-    if (!state.cache || state.cache->serial != config.serial) {
+    if (!state.cache || state.cache->revision != config.revision) {
         state.cache = std::make_shared<Cache>();
-        state.cache->serial = config.serial;
+        state.cache->revision = config.revision;
+        state.cache->byText = &state.stylesByText;
     }
     return state.cache;
 }
@@ -126,14 +178,43 @@ const std::vector<ResolvedStyle>& ResolvedFor(Cache& cache,
     key += diagnosticsType;
 
     auto it = cache.styles.find(key);
-    if (it == cache.styles.end()) {
-        it = cache.styles
-                 .emplace(std::move(key),
-                          ResolveStyles(rule.element.type, diagnosticsType,
-                                        rule.styles))
-                 .first;
+    if (it != cache.styles.end()) {
+        return *it->second;
     }
-    return it->second;
+
+    // Markup extensions ({ThemeResource ...}) can resolve differently later,
+    // so only plain values are kept across configurations.
+    bool plain = true;
+    std::wstring text = rule.element.type;
+    text += L'\x1f';
+    text += diagnosticsType;
+    for (const auto& style : rule.styles) {
+        plain &= style.value.find(L'{') == std::wstring::npos;
+        text += L'\x1f';
+        text += style.property;
+        text += style.isXaml ? L":=" : L"=";
+        text += style.value;
+    }
+
+    StyleList list;
+    if (plain && cache.byText) {
+        if (auto found = cache.byText->find(text); found != cache.byText->end()) {
+            list = found->second;
+            status::Count(status::kStyleCacheHits);
+        }
+    }
+    if (!list) {
+        list = std::make_shared<const std::vector<ResolvedStyle>>(
+            ResolveStyles(rule.element.type, diagnosticsType, rule.styles));
+        status::Count(status::kStyleResolves);
+        if (plain && cache.byText) {
+            if (cache.byText->size() >= kMaxStyleTexts) {
+                cache.byText->clear();
+            }
+            cache.byText->emplace(std::move(text), list);
+        }
+    }
+    return *cache.styles.emplace(std::move(key), std::move(list)).first->second;
 }
 
 const ConditionValues& ConditionsFor(Cache& cache,
@@ -328,8 +409,11 @@ void OnPropertyChanged(InstanceHandle handle,
 
 void Restore(wux::FrameworkElement const& element, AppliedProperty& applied) {
     try {
-        element.UnregisterPropertyChangedCallback(applied.property,
-                                                  applied.callbackToken);
+        if (applied.callbackToken) {
+            element.UnregisterPropertyChangedCallback(applied.property,
+                                                      applied.callbackToken);
+            status::Count(status::kPropertyCallbacksReleased);
+        }
     } catch (...) {
     }
 
@@ -457,12 +541,29 @@ void Apply(ThreadState& state,
             continue;
         }
 
+        // The material's numbers changed (a slider): the brush that is set
+        // takes them, instead of a new brush, a new effect and a property
+        // write for every element.
+        if (existing != tracked.properties.end()) {
+            if (auto* blur = std::get_if<BlurParams>(&style->value)) {
+                if (auto brush = existing->applied.try_as<IDeskBlurBrush>()) {
+                    auto local = ReadLocalValueSafe(element, style->property);
+                    if (SameLocalValue(local, existing->applied) &&
+                        SUCCEEDED(brush->UpdateParams(blur))) {
+                        existing->signature = style->signature;
+                        continue;
+                    }
+                }
+            }
+        }
+
         MaterializedValue value;
         try {
             value = MaterializeValue(element, style->value);
         } catch (...) {
             DLOG(L"Can't create value for '%s': %08X", style->signature.c_str(),
                  winrt::to_hresult().value);
+            state.errors++;
             continue;
         }
 
@@ -497,6 +598,7 @@ void Apply(ThreadState& state,
                          wux::DependencyProperty const& property) {
                     OnPropertyChanged(handle, sender, property);
                 });
+            status::Count(status::kPropertyCallbacks);
         } catch (...) {
         }
 
@@ -510,7 +612,7 @@ void Evaluate(ThreadState& state,
               wux::FrameworkElement const& element,
               const Config& config,
               bool initial) {
-    tracked.serial = config.serial;
+    tracked.revision = config.revision;
 
     // Keeps the resolved values alive while they are being applied.
     auto cache = CacheFor(state, config);
@@ -553,6 +655,9 @@ void FlushPendingRemovals(ThreadState& state) {
 void Prune(ThreadState& state) {
     for (auto it = state.elements.begin(); it != state.elements.end();) {
         if (!it->second.element.get()) {
+            // The callbacks went with the element.
+            status::Count(status::kPropertyCallbacksReleased,
+                          static_cast<int64_t>(it->second.properties.size()));
             it = state.elements.erase(it);
         } else {
             ++it;
@@ -568,7 +673,7 @@ void ApplyRequestedTheme(const Config& config) {
         return;
     }
     auto& state = *t_state;
-    state.themeSerial = config.serial;
+    state.themeRevision = config.revision;
     state.wantedTheme = config.enabled ? config.requestedTheme : std::nullopt;
 
     wux::FrameworkElement root{nullptr};
@@ -623,17 +728,82 @@ void ApplyRequestedTheme(const Config& config) {
          *state.wantedTheme == wux::ElementTheme::Dark ? L"dark" : L"light");
 }
 
+// Tells Desk.exe how far this thread got (see core/apply_status.h).
+void Report(ThreadState& state) {
+    uint32_t matched = 0;
+    for (const auto& [handle, tracked] : state.elements) {
+        if (!tracked.properties.empty() && tracked.element.get()) {
+            matched++;
+        }
+    }
+    status::ReportThread(GetCurrentThreadId(),
+                         {state.appliedRevision, state.appliedSerial, matched,
+                          state.errors});
+    control::Wake();
+}
+
+// Reports once the current burst of added elements is through.
+void ScheduleReport(ThreadState& state) {
+    if (state.reportScheduled) {
+        return;
+    }
+    auto queue = DispatcherQueue::GetForCurrentThread();
+    if (!queue) {
+        Report(state);
+        return;
+    }
+    state.reportScheduled = queue.TryEnqueue(DispatcherQueuePriority::Low, [] {
+        try {
+            if (t_state) {
+                t_state->reportScheduled = false;
+                Report(*t_state);
+            }
+        } catch (...) {
+        }
+    });
+    if (!state.reportScheduled) {
+        status::Count(status::kDispatcherPostFailures);
+    }
+}
+
+// The thread's dispatcher is shutting down: everything this thread holds is
+// released here, on the thread, while XAML still works. The elements are going
+// away with the tree, so they aren't restored.
+void OnThreadShutdown() {
+    DWORD id = GetCurrentThreadId();
+    if (paths::IsExplorer()) {
+        monitor::OnThreadShutdown();
+        clickthrough::OnThreadShutdown();
+    }
+    DeskBlurBrush::ReleaseThreadCaches();
+    if (t_state) {
+        size_t callbacks = 0;
+        for (auto& [handle, tracked] : t_state->elements) {
+            callbacks += tracked.properties.size();
+        }
+        status::Count(status::kPropertyCallbacksReleased, static_cast<int64_t>(callbacks));
+        delete t_state;
+        t_state = nullptr;
+        status::Count(status::kUiThreadsReleased);
+    }
+    ForgetThread(id);
+    DLOG(L"XAML thread shutting down; its state was released");
+}
+
 void ReapplyAll() {
     if (!t_state) {
         return;
     }
     auto& state = *t_state;
     auto config = config::Current();
+    if (state.appliedRevision != config->revision) {
+        state.errors = 0;
+    }
 
     std::vector<InstanceHandle> handles;
     handles.reserve(state.elements.size());
     for (const auto& [handle, tracked] : state.elements) {
-        if (tracked.serial != config->serial) {
+        if (tracked.revision != config->revision) {
             handles.push_back(handle);
         }
     }
@@ -651,6 +821,7 @@ void ReapplyAll() {
         try {
             Evaluate(state, handle, it->second, element, *config, false);
         } catch (...) {
+            state.errors++;
             DLOG(L"Re-applying styles failed: %08X", winrt::to_hresult().value);
         }
     }
@@ -663,7 +834,11 @@ void ReapplyAll() {
     }
     ApplyRequestedTheme(*config);
 
-    DLOG(L"Applied config %llu to %zu elements on this thread", config->serial,
+    state.appliedRevision = config->revision;
+    state.appliedSerial = config->serial;
+    Report(state);
+    DLOG(L"Applied config %llu (revision %llu, %s) to %zu elements on this thread",
+         config->serial, config->revision, config->enabled ? L"on" : L"off",
          handles.size());
 }
 
@@ -687,10 +862,22 @@ void OnElementAdded(InstanceHandle handle,
         it->second = TrackedElement{};
     }
 
+    if (state.appliedRevision == 0) {
+        // A new thread starts out with the configuration it first sees; a
+        // later change reaches it through ReapplyAll.
+        state.appliedRevision = config->revision;
+        state.appliedSerial = config->serial;
+    }
+
     auto& tracked = it->second;
     tracked.element = winrt::make_weak(element);
     tracked.diagnosticsType = diagnosticsType;
-    Evaluate(state, handle, tracked, element, *config, true);
+    try {
+        Evaluate(state, handle, tracked, element, *config, true);
+    } catch (...) {
+        state.errors++;
+        DLOG(L"Applying styles failed: %08X", winrt::to_hresult().value);
+    }
 
     if (paths::IsExplorer()) {
         if (winrt::get_class_name(element) == L"Taskbar.TaskbarFrame") {
@@ -701,8 +888,8 @@ void OnElementAdded(InstanceHandle handle,
                                      config->enabled && config->clickThrough);
     }
 
-    if (paths::IsStartMenu() && state.themeSerial != config->serial) {
-        state.themeSerial = config->serial;
+    if (paths::IsStartMenu() && state.themeRevision != config->revision) {
+        state.themeRevision = config->revision;
         if (auto queue = DispatcherQueue::GetForCurrentThread()) {
             queue.TryEnqueue(DispatcherQueuePriority::Low, [] {
                 try {
@@ -714,6 +901,7 @@ void OnElementAdded(InstanceHandle handle,
     }
 
     FlushPendingRemovals(state);
+    ScheduleReport(state);
 
     if (++state.addsSincePrune >= 512) {
         state.addsSincePrune = 0;
@@ -753,14 +941,22 @@ void RunOnUiThreads(std::function<void()> callback) {
     };
 
     for (auto& thread : threads) {
+        bool queued = false;
         try {
             if (thread.queue) {
-                thread.queue.TryEnqueue(run);
+                queued = thread.queue.TryEnqueue(run);
             } else if (thread.core) {
                 thread.core.RunAsync(
                     winrt::Windows::UI::Core::CoreDispatcherPriority::Normal, run);
+                queued = true;
             }
         } catch (...) {
+        }
+        if (!queued) {
+            // The dispatcher is gone or shutting down: stop trying.
+            status::Count(status::kDispatcherPostFailures);
+            DLOG(L"XAML thread %lu doesn't take work any more; forgetting it", thread.id);
+            ForgetThread(thread.id);
         }
     }
 }

@@ -67,9 +67,7 @@ LSTATUS APIENTRY RegQueryValueExW_Hook(HKEY key,
     return ERROR_SUCCESS;
 }
 
-}  // namespace
-
-bool Install() {
+bool InstallCore() {
     MH_STATUS status = MH_Initialize();
     if (status != MH_OK && status != MH_ERROR_ALREADY_INITIALIZED) {
         DLOG(L"MH_Initialize failed: %d", status);
@@ -88,11 +86,17 @@ bool Install() {
         return false;
     }
 
-    if (MH_CreateHook(open, reinterpret_cast<LPVOID>(&RegOpenKeyExW_Hook),
-                      reinterpret_cast<LPVOID*>(&g_originalOpen)) != MH_OK ||
-        MH_CreateHook(query, reinterpret_cast<LPVOID>(&RegQueryValueExW_Hook),
-                      reinterpret_cast<LPVOID*>(&g_originalQuery)) != MH_OK) {
-        DLOG(L"MH_CreateHook failed");
+    // A hook created by an earlier, partly failed attempt is reused.
+    status = MH_CreateHook(open, reinterpret_cast<LPVOID>(&RegOpenKeyExW_Hook),
+                           reinterpret_cast<LPVOID*>(&g_originalOpen));
+    if (status != MH_OK && status != MH_ERROR_ALREADY_CREATED) {
+        DLOG(L"MH_CreateHook(RegOpenKeyExW) failed: %d", status);
+        return false;
+    }
+    status = MH_CreateHook(query, reinterpret_cast<LPVOID>(&RegQueryValueExW_Hook),
+                           reinterpret_cast<LPVOID*>(&g_originalQuery));
+    if (status != MH_OK && status != MH_ERROR_ALREADY_CREATED) {
+        DLOG(L"MH_CreateHook(RegQueryValueExW) failed: %d", status);
         return false;
     }
 
@@ -104,6 +108,20 @@ bool Install() {
 
     DLOG(L"Registry hooks installed");
     return true;
+}
+
+}  // namespace
+
+bool Install() {
+    // Called again when initialization is retried: once in place, the hooks
+    // stay; a failed attempt is tried again.
+    static std::mutex mutex;
+    static bool installed = false;
+    std::lock_guard lock(mutex);
+    if (!installed) {
+        installed = InstallCore();
+    }
+    return installed;
 }
 
 ReportCompositionDiagDisabledScope::ReportCompositionDiagDisabledScope() {
