@@ -198,8 +198,8 @@ internal sealed class EngineStatusReader
         report.ProcessId == process.Id &&
         (report.ProcessStart == 0 || process.StartTime == 0 || report.ProcessStart == process.StartTime);
 
-    /// <summary>Deletes reports of processes that no longer run.</summary>
-    public void CleanUp(Func<uint, long, bool> isRunning)
+    /// <summary>Deletes reports only for confirmed exited/replaced processes; unknown access is preserved.</summary>
+    public void CleanUp(Func<uint, long, bool?> isRunning)
     {
         try
         {
@@ -226,7 +226,7 @@ internal sealed class EngineStatusReader
                 {
                     // Unreadable: decided by the process id alone.
                 }
-                if (!isRunning(pid, start))
+                if (isRunning(pid, start) == false)
                 {
                     File.Delete(file);
                     _cache.Remove(file);

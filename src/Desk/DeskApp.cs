@@ -74,7 +74,12 @@ internal sealed partial class DeskApp : ApplicationContext
         Log.Info($"Host session {_host.Lease.Session}");
 
         // Auto-hide left on by a previous Desk that didn't exit normally.
-        if (_autoHide.Restore() != AutoHideRestore.NothingToDo)
+        var autoHideRestore = _autoHide.Restore();
+        if (autoHideRestore == AutoHideRestore.Failed)
+        {
+            Log.Warn("Auto-hide from a previous run could not be restored yet; it will be retried");
+        }
+        else if (autoHideRestore != AutoHideRestore.NothingToDo)
         {
             Log.Info("Restored auto-hide changed by a previous run");
         }
@@ -389,9 +394,13 @@ internal sealed partial class DeskApp : ApplicationContext
         }
         _runtime.Write(RuntimeWriter.StartMenuFile, startMenu, false, startRules, requestedTheme: requestedTheme);
 
-        _autoHide.SetForced(enabled && maximized && _settings.MaximizeMode == MaximizeMode.AutoHide);
+        UpdateAutoHide();
         UpdateTray();
     }
+
+    private void UpdateAutoHide() => _autoHide.SetForced(
+        !_exiting && _settings.Enabled && _theme != null && _windows.HasMaximizedWindow &&
+        _settings.MaximizeMode == MaximizeMode.AutoHide);
 
     /// <summary>The system figures island: the user's choices and the theme's colors.</summary>
     private MonitorConfig MonitorFor(bool enabled, bool merge)
@@ -441,6 +450,9 @@ internal sealed partial class DeskApp : ApplicationContext
     private void Tick()
     {
         _targets?.Tick();
+        // Retry failed system changes even when the window/settings haven't
+        // changed, e.g. after the taskbar returns from an Explorer restart.
+        UpdateAutoHide();
         if (_tray == null)
         {
             return; // Still starting up.
@@ -481,9 +493,7 @@ internal sealed partial class DeskApp : ApplicationContext
         if (DateTime.UtcNow >= _nextStatusCleanup)
         {
             _nextStatusCleanup = DateTime.UtcNow.AddMinutes(10);
-            _engineReports.CleanUp((pid, start) =>
-                WindowsTargetPlatform.ProcessStartTime(pid) is var actual && actual != 0 &&
-                (start == 0 || actual == start));
+            _engineReports.CleanUp(NativeMethods.IsProcessInstanceRunning);
         }
     }
 
@@ -611,8 +621,7 @@ internal sealed partial class DeskApp : ApplicationContext
         // Tell the engine to put everything back. (If this doesn't happen,
         // because Desk.exe crashed or was ended, the engines notice that
         // their owner is gone and do the same.)
-        _runtime.Write(RuntimeWriter.ExplorerFile, false, false, []);
-        _runtime.Write(RuntimeWriter.StartMenuFile, false, false, []);
+        _runtime.WriteDisabledConfigurations();
         _host.MarkExiting();
         _host.Dispose();
         _autoHide.SetForced(false);

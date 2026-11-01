@@ -200,6 +200,22 @@ public class EngineStatusTests
     }
 
     [Fact]
+    public void CleanUpKeepsReportsWhenProcessAccessIsUnknown()
+    {
+        using var dir = new TempDir();
+        string path = dir.File("explorer.exe.100.json");
+        File.WriteAllText(path, ReportJson());
+        var reader = new EngineStatusReader(dir.Path);
+        reader.CleanUp((_, _) => null); // E.g. access denied, not proof of exit.
+
+        Assert.True(File.Exists(path));
+        Assert.NotNull(reader.Read("explorer.exe", Explorer));
+        // A later confirmed exit still removes it.
+        reader.CleanUp((_, _) => false);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
     public void RuntimeWriterTracksSerialsAndRecoveryRequests()
     {
         using var dir = new TempDir();

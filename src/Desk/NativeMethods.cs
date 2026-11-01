@@ -46,6 +46,7 @@ internal static class NativeMethods
     public const uint MEM_RELEASE = 0x8000;
     public const uint PAGE_READWRITE = 0x04;
     public const uint WAIT_OBJECT_0 = 0;
+    public const uint WAIT_TIMEOUT = 0x00000102;
     public const uint LIST_MODULES_ALL = 0x03;
 
     public const uint ABM_GETSTATE = 0x00000004;
@@ -238,6 +239,40 @@ internal static class NativeMethods
         try
         {
             return GetProcessTimes(process, out long creation, out _, out _, out _) ? creation : 0;
+        }
+        finally
+        {
+            CloseHandle(process);
+        }
+    }
+
+    /// <summary>Null means access or identity could not be checked; it does not mean the process exited.</summary>
+    public static bool? IsProcessInstanceRunning(uint processId, long startTime)
+    {
+        const int errorInvalidParameter = 87;
+        IntPtr process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+        if (process == IntPtr.Zero)
+        {
+            return Marshal.GetLastWin32Error() == errorInvalidParameter ? false : null;
+        }
+        try
+        {
+            uint wait = WaitForSingleObject(process, 0);
+            if (wait == WAIT_OBJECT_0)
+            {
+                return false;
+            }
+            if (wait != WAIT_TIMEOUT)
+            {
+                return null;
+            }
+            if (startTime == 0)
+            {
+                return true;
+            }
+            return GetProcessTimes(process, out long creation, out _, out _, out _)
+                ? creation == startTime
+                : null;
         }
         finally
         {

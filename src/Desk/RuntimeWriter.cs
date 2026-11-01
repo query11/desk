@@ -41,6 +41,14 @@ internal sealed class RuntimeWriter
     /// <summary>The serial of the configuration last written for the process; 0 if none.</summary>
     public long LastSerial(string process) => _writtenSerials.GetValueOrDefault(process);
 
+    /// <summary>Tries both targets even if one restore file cannot be written.</summary>
+    public bool WriteDisabledConfigurations()
+    {
+        bool explorer = Write(ExplorerFile, false, false, []);
+        bool startMenu = Write(StartMenuFile, false, false, []);
+        return explorer && startMenu;
+    }
+
     /// <summary>
     /// Makes the next writes go out again with a new recover token: engines
     /// whose initialization failed retry it right away.

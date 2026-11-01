@@ -14,13 +14,15 @@ internal sealed class FakeAppBar : IAppBarState
 
     public Action? BeforeSet { get; set; }
 
+    public bool SetSucceeds { get; set; } = true;
+
     public bool AutoHidden => (State & AutoHide) != 0;
 
     public int? Get() => State;
 
     public bool Set(int state)
     {
-        if (State == null)
+        if (State == null || !SetSucceeds)
         {
             return false;
         }
@@ -132,6 +134,69 @@ public class AutoHideTests
         Assert.Empty(bar.Sets);
         Assert.False(bar.AutoHidden);
     }
+
+    [Fact]
+    public void AFailedEnableIsRetriedWithTheSameIntent()
+    {
+        using var dir = new TempDir();
+        var bar = new FakeAppBar { SetSucceeds = false };
+        var controller = new AutoHideController(bar, dir.File("autohide.json"));
+        controller.SetForced(true);
+        Assert.False(bar.AutoHidden);
+
+        bar.SetSucceeds = true;
+        controller.SetForced(true);
+        Assert.True(bar.AutoHidden);
+        controller.SetForced(false);
+        Assert.False(bar.AutoHidden);
+    }
+
+    [Fact]
+    public void AFailedDisableIsRetriedWithTheSameIntent()
+    {
+        using var dir = new TempDir();
+        var bar = new FakeAppBar();
+        var controller = new AutoHideController(bar, dir.File("autohide.json"));
+        controller.SetForced(true);
+        bar.SetSucceeds = false;
+        controller.SetForced(false);
+        Assert.True(bar.AutoHidden);
+        Assert.True(File.Exists(dir.File("autohide.json")));
+
+        bar.SetSucceeds = true;
+        controller.SetForced(false);
+        Assert.False(bar.AutoHidden);
+        Assert.False(File.Exists(dir.File("autohide.json")));
+    }
+
+    [Fact]
+    public void AFailedStartupRestoreIsRetriedWithoutForcingAutoHide()
+    {
+        using var dir = new TempDir();
+        var bar = new FakeAppBar();
+        new AutoHideController(bar, dir.File("autohide.json")).SetForced(true);
+        bar.State = null;
+        var controller = new AutoHideController(bar, dir.File("autohide.json"));
+        Assert.Equal(AutoHideRestore.Failed, controller.Restore());
+
+        bar.State = 3;
+        controller.SetForced(false);
+        Assert.False(bar.AutoHidden);
+        Assert.False(File.Exists(dir.File("autohide.json")));
+    }
+
+    [Fact]
+    public void RestoringDirectlyAllowsAutoHideToBeForcedAgain()
+    {
+        using var dir = new TempDir();
+        var bar = new FakeAppBar();
+        var controller = new AutoHideController(bar, dir.File("autohide.json"));
+        controller.SetForced(true);
+        Assert.Equal(AutoHideRestore.Restored, controller.Restore());
+
+        controller.SetForced(true);
+        Assert.True(bar.AutoHidden);
+    }
 }
 
 internal sealed class FakeRestoreEnvironment : IRestoreEnvironment
@@ -143,6 +208,8 @@ internal sealed class FakeRestoreEnvironment : IRestoreEnvironment
     public HostLease? Host { get; set; }
 
     public bool Writable { get; set; } = true;
+
+    public bool SettingWritable { get; set; } = true;
 
     public AutoHideRestore AutoHide { get; set; } = AutoHideRestore.NothingToDo;
 
@@ -189,7 +256,7 @@ internal sealed class FakeRestoreEnvironment : IRestoreEnvironment
     public bool TurnStylingOff()
     {
         Calls.Add("setting");
-        return true;
+        return SettingWritable;
     }
 }
 
@@ -260,6 +327,16 @@ public class EmergencyRestoreTests
         Assert.False(report.Succeeded);
         Assert.Contains("无法写入还原配置", report.Describe());
     }
+
+    [Fact]
+    public void AnUnsavedDisabledSettingIsNotACompleteRestore()
+    {
+        var env = new FakeRestoreEnvironment { SettingWritable = false };
+        var report = EmergencyRestore.Run(env);
+        Assert.True(report.ConfigurationsWritten);
+        Assert.False(report.Succeeded);
+        Assert.Contains("停用美化的设置没能保存", report.Describe());
+    }
 }
 
 /// <summary>The owner named in the configurations, and the heartbeat.</summary>
@@ -287,6 +364,21 @@ public class HostSessionTests
         var json = JsonNode.Parse(File.ReadAllText(dir.File("startmenuexperiencehost.exe.json")))!;
         Assert.Null(json["host"]);
         Assert.False((bool)json["enabled"]!);
+    }
+
+    [Theory]
+    [InlineData(RuntimeWriter.ExplorerFile, RuntimeWriter.StartMenuFile)]
+    [InlineData(RuntimeWriter.StartMenuFile, RuntimeWriter.ExplorerFile)]
+    public void BothRestoreConfigurationsAreAttemptedWhenOneWriteFails(string blocked, string other)
+    {
+        using var dir = new TempDir();
+        // A directory at one target path prevents replacing that file.
+        Directory.CreateDirectory(dir.File(blocked + ".json"));
+        var writer = new RuntimeWriter(dir.Path);
+        Assert.False(writer.WriteDisabledConfigurations());
+        var json = JsonNode.Parse(File.ReadAllText(dir.File(other + ".json")))!;
+        Assert.False((bool)json["enabled"]!);
+        Assert.Null(json["host"]);
     }
 
     [Fact]

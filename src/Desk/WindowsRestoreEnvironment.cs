@@ -63,8 +63,7 @@ internal sealed class WindowsRestoreEnvironment : IRestoreEnvironment
             // No owner: engines apply it as it is, whatever happens to this
             // short-lived process. Older engines read it too.
             var writer = new RuntimeWriter();
-            return writer.Write(RuntimeWriter.ExplorerFile, false, false, []) &&
-                   writer.Write(RuntimeWriter.StartMenuFile, false, false, []);
+            return writer.WriteDisabledConfigurations();
         }
         catch (Exception e)
         {

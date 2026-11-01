@@ -32,7 +32,7 @@ internal sealed record RestoreReport(
     AutoHideRestore AutoHide,
     bool SettingSaved)
 {
-    public bool Succeeded => ConfigurationsWritten && (!HostWasRunning || HostExited || HostTerminated) &&
+    public bool Succeeded => ConfigurationsWritten && SettingSaved && (!HostWasRunning || HostExited || HostTerminated) &&
                              AutoHide != AutoHideRestore.Failed;
 
     public string Describe()

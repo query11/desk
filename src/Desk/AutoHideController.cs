@@ -35,7 +35,7 @@ internal sealed class WindowsAppBarState : IAppBarState
         }
         data.lParam = (IntPtr)state;
         SHAppBarMessage(ABM_SETSTATE, ref data);
-        return true;
+        return Get() is int actual && (actual & ABS_AUTOHIDE) == (state & ABS_AUTOHIDE);
     }
 
     private static APPBARDATA Data() => new()
@@ -80,6 +80,7 @@ internal sealed class AutoHideController
     private readonly IAppBarState _appBar;
     private readonly string _journalPath;
     private bool _forced;
+    private bool _restorePending;
 
     public AutoHideController(IAppBarState appBar, string? journalPath = null)
     {
@@ -89,7 +90,7 @@ internal sealed class AutoHideController
 
     public void SetForced(bool autoHide)
     {
-        if (autoHide == _forced)
+        if (autoHide == _forced && !_restorePending)
         {
             return;
         }
@@ -110,25 +111,35 @@ internal sealed class AutoHideController
                     Log.Warn("Not turning on auto-hide: its restore record couldn't be saved");
                     return;
                 }
-                _appBar.Set(state.Value | ABS_AUTOHIDE);
+                // Keep the record even if the call reports failure: the
+                // system may have changed before verification failed.
+                _restorePending = true;
+                if (!_appBar.Set(state.Value | ABS_AUTOHIDE))
+                {
+                    Log.Warn("Auto-hide could not be enabled; it will be retried");
+                    return;
+                }
                 Log.Info("Auto-hide turned on while a window is maximized");
             }
             _forced = true;
+            _restorePending = false;
         }
         else
         {
             Restore();
-            _forced = false;
         }
     }
 
     /// <summary>Undoes what the record says Desk changed (also left over from a previous run).</summary>
     public AutoHideRestore Restore()
     {
+        _restorePending = true;
         var journal = ReadJournal();
         if (journal is not { DeskTurnedOn: true })
         {
             DeleteJournal();
+            _forced = false;
+            _restorePending = false;
             return AutoHideRestore.NothingToDo;
         }
 
@@ -155,6 +166,8 @@ internal sealed class AutoHideController
             Log.Info("Auto-hide was turned off by the user meanwhile; left as it is");
         }
         DeleteJournal();
+        _forced = false;
+        _restorePending = false;
         return result;
     }
 
