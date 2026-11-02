@@ -54,6 +54,7 @@ xcopy /E /I themes dist\Desk\themes
 ```
 
 `tests/Desk.Tests` 和引擎的 `src/DeskTap/tests/core_tests.cpp` 不依赖 Windows 桌面，在 Linux 上也能运行（见 [docs/TESTING.md](docs/TESTING.md) 第 16 节）。
+设置窗口另有一个 UI 冒烟测试 `tests/ui-smoke.ps1`，每次构建都在 Windows 上运行，截图在构建的 `ui-smoke-…` 附件里。
 
 ## 致谢与许可
 
