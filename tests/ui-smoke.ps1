@@ -151,39 +151,34 @@ function Save-Shot($window, [string]$name) {
     $bitmap.Dispose()
 }
 
-# Every control and text in the page, with its place relative to the window.
+# Every named control and text in the page, with its place relative to the
+# window; fails when one reaches past the window's right edge.
 function Write-Layout($window, [string]$title) {
     $origin = $window.Current.BoundingRectangle
-    $right = $origin.Width
     Write-Host "----- layout: $title (window $([int]$origin.Width)x$([int]$origin.Height))"
-    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
-    $stack = New-Object System.Collections.Stack
-    $stack.Push(@($window, 0))
-    while ($stack.Count -gt 0) {
-        $item = $stack.Pop()
-        $element = $item[0]
-        $depth = $item[1]
-        try { $current = $element.Current; $box = $current.BoundingRectangle } catch { continue }
-        if ($depth -gt 0 -and -not $box.IsEmpty -and -not $current.IsOffscreen) {
-            $type = $current.ControlType.ProgrammaticName -replace '^ControlType\.', ''
-            $name = $current.Name
-            if ($name.Length -gt 36) { $name = $name.Substring(0, 36) + '…' }
-            $x = [int]($box.Left - $origin.Left)
-            $y = [int]($box.Top - $origin.Top)
-            $flag = ''
-            if ($box.Right - $origin.Left -gt $right + 1) { $flag = '  <-- past the right edge' }
-            $id = ''
-            if ($current.AutomationId -and $current.AutomationId -notmatch '^\d+$') { $id = " #$($current.AutomationId)" }
-            Write-Host ("{0}{1} '{2}'{3} @{4},{5} {6}x{7}{8}" -f ('  ' * [Math]::Min($depth - 1, 8)), $type, $name, $id, $x, $y, [int]$box.Width, [int]$box.Height, $flag)
-            if ($flag) { Fail "$title`: '$($current.Name)' goes past the right edge of the window" }
-        }
-        $children = New-Object System.Collections.Generic.List[object]
+    $shown = 0
+    foreach ($element in (Get-Elements $window | Select-Object -Skip 1)) {
         try {
-            $child = $walker.GetFirstChild($element)
-            while ($child -ne $null) { $children.Add($child); $child = $walker.GetNextSibling($child) }
+            $c = $element.Current
+            $box = $c.BoundingRectangle
+            if ($box.IsEmpty -or $c.IsOffscreen) { continue }
+            $id = ''
+            if ($c.AutomationId -and $c.AutomationId -notmatch '^\d+$') { $id = " #$($c.AutomationId)" }
+            $past = ($box.Right - $origin.Left) -gt ($origin.Width + 1)
+            if (-not ($c.Name -or $id -or $past)) { continue }
+            $type = $c.ControlType.ProgrammaticName -replace '^ControlType\.', ''
+            $name = $c.Name
+            if ($name.Length -gt 36) { $name = $name.Substring(0, 36) + '…' }
+            $flag = ''
+            if ($past) { $flag = '  <-- past the right edge' }
+            Write-Host ("  {0} '{1}'{2} @{3},{4} {5}x{6}{7}" -f $type, $name, $id, [int]($box.Left - $origin.Left),
+                [int]($box.Top - $origin.Top), [int]$box.Width, [int]$box.Height, $flag)
+            $shown++
+            if ($past) { Fail "$title`: '$($c.Name)' goes past the right edge of the window" }
         } catch { }
-        for ($i = $children.Count - 1; $i -ge 0; $i--) { $stack.Push(@($children[$i], $depth + 1)) }
     }
+    # An empty walk would make the edge check pass without looking at anything.
+    if ($shown -lt 10) { Fail "$title`: only $shown elements found for the layout check" }
 }
 
 function Start-Desk([int]$light) {
