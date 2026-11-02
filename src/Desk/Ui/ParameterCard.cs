@@ -18,9 +18,8 @@ internal sealed class ParameterCard : CardControl
         // and only the slider shows.
         SetResourceReference(StyleProperty, typeof(CardControl));
         Info = info;
-        Margin = new Thickness(0, 0, 0, 4);
         Icon = new SymbolIcon { Symbol = info.Icon };
-        Header = UiText.Header(info.Title, info.Description);
+        Header = new CardHeader { Title = info.Title, Description = info.Description };
 
         _value = new System.Windows.Controls.TextBlock
         {
@@ -29,6 +28,8 @@ internal sealed class ParameterCard : CardControl
             VerticalAlignment = VerticalAlignment.Center,
             TextAlignment = TextAlignment.Right,
         };
+        // Equal-width digits: the number doesn't jitter while dragging.
+        System.Windows.Documents.Typography.SetNumeralAlignment(_value, FontNumeralAlignment.Tabular);
         _slider = new Slider
         {
             Width = 220,

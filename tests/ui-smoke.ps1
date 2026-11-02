@@ -1,0 +1,265 @@
+﻿# UI smoke test for the settings window.
+#
+# Starts a published Desk.exe *without* DeskTap.dll (so nothing is injected
+# into the build machine's shell), then drives the window through UI
+# Automation: every page at a wide and a narrow size, in light and dark mode,
+# plus the toast and the confirmation dialogs. Fails when the window throws,
+# a page doesn't open, or a dialog doesn't behave. Writes a screenshot of each
+# step and prints the layout of every page, so a change to the window can be
+# reviewed from the build log and the "ui-smoke" artifact.
+#
+# Windows PowerShell 5.1: UI Automation is always there. Saved with a BOM so
+# the Chinese labels survive.
+
+param(
+    [Parameter(Mandatory = $true)][string]$Publish,
+    [Parameter(Mandatory = $true)][string]$Themes,
+    [Parameter(Mandatory = $true)][string]$Out
+)
+
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class Native {
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hwnd, int x, int y, int w, int h, bool repaint);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+}
+'@
+
+$A = [System.Windows.Automation.AutomationElement]
+$Tree = [System.Windows.Automation.TreeScope]
+
+# Searches see the raw tree: page titles and dialog texts sit inside control
+# templates, which the default (control) view leaves out.
+$rawView = New-Object System.Windows.Automation.CacheRequest
+$rawView.TreeFilter = [System.Windows.Automation.Automation]::RawViewCondition
+$rawView.Push()
+$failures = New-Object System.Collections.Generic.List[string]
+
+function Fail([string]$message) {
+    Write-Host "FAIL: $message" -ForegroundColor Red
+    $failures.Add($message)
+}
+
+New-Item -ItemType Directory -Force $Out | Out-Null
+try { Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop } catch { Write-Host "Display resolution unchanged: $($_.Exception.Message)" }
+
+# A copy of Desk without its engine.
+$app = Join-Path $env:RUNNER_TEMP 'desk-ui-smoke'
+Remove-Item -Recurse -Force $app -ErrorAction SilentlyContinue
+Copy-Item -Recurse $Publish $app
+Remove-Item -Force (Join-Path $app 'DeskTap.dll') -ErrorAction SilentlyContinue
+Copy-Item -Recurse -Force $Themes (Join-Path $app 'themes')
+$logs = Join-Path $env:LOCALAPPDATA 'Desk\logs'
+
+function Wait-Until([scriptblock]$condition, [int]$seconds = 10) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $value = & $condition
+        if ($value) { return $value }
+        Start-Sleep -Milliseconds 200
+    }
+    return $null
+}
+
+function Find-All($root, $property, $value) {
+    $condition = New-Object System.Windows.Automation.PropertyCondition($property, $value)
+    return $root.FindAll($Tree::Descendants, $condition)
+}
+
+function Find-One($root, $property, $value) {
+    $condition = New-Object System.Windows.Automation.PropertyCondition($property, $value)
+    return $root.FindFirst($Tree::Descendants, $condition)
+}
+
+function Find-Id($root, [string]$id) { Find-One $root $A::AutomationIdProperty $id }
+function Find-Name($root, [string]$name) { Find-One $root $A::NameProperty $name }
+
+function Invoke-Element($element) {
+    $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+}
+
+function Save-Shot($window, [string]$name) {
+    $hwnd = [IntPtr]$window.Current.NativeWindowHandle
+    $rect = New-Object Native+RECT
+    [Native]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
+    $width = $rect.Right - $rect.Left
+    $height = $rect.Bottom - $rect.Top
+    $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $hdc = $graphics.GetHdc()
+    # PW_RENDERFULLCONTENT: what DWM shows, also for hardware-rendered windows.
+    [Native]::PrintWindow($hwnd, $hdc, 2) | Out-Null
+    $graphics.ReleaseHdc($hdc)
+    $graphics.Dispose()
+    $bitmap.Save((Join-Path $Out "$name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+    $bitmap.Dispose()
+}
+
+# Every control and text in the page, with its place relative to the window.
+function Write-Layout($window, [string]$title) {
+    $origin = $window.Current.BoundingRectangle
+    $right = $origin.Width
+    Write-Host "----- layout: $title (window $([int]$origin.Width)x$([int]$origin.Height))"
+    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+    $stack = New-Object System.Collections.Stack
+    $stack.Push(@($window, 0))
+    while ($stack.Count -gt 0) {
+        $item = $stack.Pop()
+        $element = $item[0]
+        $depth = $item[1]
+        $current = $element.Current
+        $box = $current.BoundingRectangle
+        if ($depth -gt 0 -and -not $box.IsEmpty -and -not $current.IsOffscreen) {
+            $type = $current.ControlType.ProgrammaticName -replace '^ControlType\.', ''
+            $name = $current.Name
+            if ($name.Length -gt 36) { $name = $name.Substring(0, 36) + '…' }
+            $x = [int]($box.Left - $origin.Left)
+            $y = [int]($box.Top - $origin.Top)
+            $flag = ''
+            if ($box.Right - $origin.Left -gt $right + 1) { $flag = '  <-- past the right edge' }
+            $id = ''
+            if ($current.AutomationId -and $current.AutomationId -notmatch '^\d+$') { $id = " #$($current.AutomationId)" }
+            Write-Host ("{0}{1} '{2}'{3} @{4},{5} {6}x{7}{8}" -f ('  ' * [Math]::Min($depth - 1, 8)), $type, $name, $id, $x, $y, [int]$box.Width, [int]$box.Height, $flag)
+            if ($flag) { Fail "$title`: '$($current.Name)' goes past the right edge of the window" }
+        }
+        $children = New-Object System.Collections.Generic.List[object]
+        $child = $walker.GetFirstChild($element)
+        while ($child -ne $null) { $children.Add($child); $child = $walker.GetNextSibling($child) }
+        for ($i = $children.Count - 1; $i -ge 0; $i--) { $stack.Push(@($children[$i], $depth + 1)) }
+    }
+}
+
+function Start-Desk([int]$light) {
+    New-Item -Force 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' | Out-Null
+    Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' AppsUseLightTheme $light -Type DWord
+    $process = Start-Process (Join-Path $app 'Desk.exe') -PassThru
+    $window = Wait-Until {
+        $condition = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
+        $found = $A::RootElement.FindAll($Tree::Children, $condition)
+        foreach ($w in $found) { if ($w.Current.Name -eq 'Desk' -and $w.Current.ClassName -notmatch 'Tray') { return $w } }
+    } 30
+    if (-not $window) { throw 'The settings window did not open' }
+    return @($process, $window)
+}
+
+function Set-Size($window, [int]$width, [int]$height) {
+    $hwnd = [IntPtr]$window.Current.NativeWindowHandle
+    [Native]::MoveWindow($hwnd, 20, 20, $width, $height, $true) | Out-Null
+    [Native]::SetForegroundWindow($hwnd) | Out-Null
+    Start-Sleep -Milliseconds 800
+}
+
+# The pane's items, top to bottom: 概览, 任务栏, 开始菜单, 设置.
+function Get-NavItems($window) {
+    $items = @(Find-All $window $A::ControlTypeProperty ([System.Windows.Automation.ControlType]::TabItem))
+    return $items | Sort-Object { $_.Current.BoundingRectangle.Top }
+}
+
+$pages = @('概览', '任务栏', '开始菜单', '设置')
+
+function Open-Page($window, [int]$index) {
+    $items = Get-NavItems $window
+    if ($items.Count -lt 4) { Fail "expected 4 navigation items, found $($items.Count)"; return $false }
+    $items[$index].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    Start-Sleep -Milliseconds 900
+    return Assert-Title $window $pages[$index]
+}
+
+# The pinned page title shows the page that is open.
+function Assert-Title($window, [string]$expected) {
+    $title = Wait-Until {
+        foreach ($t in (Find-All $window $A::NameProperty $expected)) {
+            $box = $t.Current.BoundingRectangle
+            if ($box.Height -ge 30 -and $box.Left -gt $window.Current.BoundingRectangle.Left + 40) { return $t }
+        }
+    } 5
+    if (-not $title) { Fail "page title '$expected' not shown"; return $false }
+    return $true
+}
+
+function Visit-Pages($window, [string]$prefix, [bool]$layout) {
+    for ($i = 0; $i -lt $pages.Count; $i++) {
+        if (Open-Page $window $i) {
+            Save-Shot $window "$prefix-$i-$($pages[$i])"
+            if ($layout) { Write-Layout $window "$prefix $($pages[$i])" }
+        }
+    }
+}
+
+# Clicks a button that opens a confirmation, checks the dialog, then answers it.
+function Confirm-Dialog($window, [string]$button, [string]$title, [string]$answer, [string]$shot) {
+    Invoke-Element (Find-Id $window $button)
+    $dialogTitle = Wait-Until { Find-Name $window $title } 5
+    if (-not $dialogTitle) { Fail "dialog '$title' did not open"; return }
+    Start-Sleep -Milliseconds 500
+    Save-Shot $window $shot
+    $choice = Wait-Until {
+        foreach ($b in (Find-All $window $A::NameProperty $answer)) {
+            if ($b.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button) { return $b }
+        }
+    } 5
+    if (-not $choice) { Fail "dialog '$title' has no '$answer' button"; return }
+    Invoke-Element $choice
+}
+
+function Stop-Desk($window, $process, [string]$prefix) {
+    Open-Page $window 3 | Out-Null
+    Confirm-Dialog $window 'ExitButton' '退出 Desk？' '退出并还原' "$prefix-dialog-exit"
+    if (-not $process.WaitForExit(15000)) {
+        Fail "$prefix`: Desk did not exit after confirming"
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# ---------------------------------------------------------------- light mode
+$process, $window = Start-Desk 1
+Set-Size $window 1040 1000
+Visit-Pages $window 'light-wide' $true
+
+# Feedback and confirmations on the overview.
+Open-Page $window 0 | Out-Null
+Invoke-Element (Find-Id $window 'ReapplyButton')
+if (-not (Wait-Until { Find-Name $window '已重新应用' } 5)) { Fail 'no toast after 重新应用' }
+Start-Sleep -Milliseconds 400
+Save-Shot $window 'light-toast'
+Confirm-Dialog $window 'RestartExplorerButton' '重启资源管理器？' '取消' 'light-dialog-restart'
+if (-not (Wait-Until { -not (Find-Name $window '重启资源管理器？') } 5)) { Fail 'the restart dialog did not close on 取消' }
+
+# A status tile opens its page.
+Invoke-Element (Find-Id $window 'TaskbarTile')
+Start-Sleep -Milliseconds 900
+Assert-Title $window '任务栏' | Out-Null
+
+# Narrow: the pane folds to icons and the cards keep their content in view.
+Set-Size $window 760 900
+Visit-Pages $window 'light-narrow' $true
+
+Set-Size $window 1040 1000
+Stop-Desk $window $process 'light'
+
+# ----------------------------------------------------------------- dark mode
+$process, $window = Start-Desk 0
+Set-Size $window 1040 1000
+Visit-Pages $window 'dark-wide' $false
+Stop-Desk $window $process 'dark'
+
+# ------------------------------------------------------------------- verdict
+$errors = @(Get-ChildItem $logs -Filter *.log -ErrorAction SilentlyContinue |
+    Select-String -Pattern 'ERROR' | Where-Object { $_.Line -match 'settings window|Unhandled' })
+foreach ($e in $errors) { Fail "logged: $($e.Line)" }
+
+Write-Host "Screenshots: $((Get-ChildItem $Out -Filter *.png).Count) in $Out"
+if ($failures.Count -gt 0) {
+    Write-Host "$($failures.Count) problem(s):" -ForegroundColor Red
+    $failures | ForEach-Object { Write-Host "  $_" }
+    exit 1
+}
+Write-Host 'UI smoke test passed.' -ForegroundColor Green

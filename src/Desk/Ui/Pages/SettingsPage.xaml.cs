@@ -13,14 +13,22 @@ public partial class SettingsPage : Page
     {
         InitializeComponent();
 
-        VersionText.Text = $"Desk {DeskApp.Version}";
+        VersionHeader.Title = $"Desk {DeskApp.Version}";
         AutostartSwitch.Checked += (_, _) => SetAutostart(true);
         AutostartSwitch.Unchecked += (_, _) => SetAutostart(false);
         ThemesFolderButton.Click += (_, _) => _app.OpenThemesFolder();
         LogsFolderButton.Click += (_, _) => _app.OpenLogsFolder();
         ExportDiagnosticsButton.Click += (_, _) => ExportDiagnostics();
         ProjectButton.Click += (_, _) => DeskApp.OpenUrl(ProjectUrl);
-        ExitButton.Click += (_, _) => _app.Exit();
+        ExitButton.Click += async (_, _) =>
+        {
+            if (await UiHost.ConfirmAsync("退出 Desk？",
+                    "任务栏和开始菜单会恢复成系统原样。之后再次运行 Desk.exe 就能重新启用。", "退出并还原",
+                    dangerous: true))
+            {
+                _app.Exit();
+            }
+        };
 
         Loaded += (_, _) =>
         {
@@ -92,6 +100,8 @@ public partial class SettingsPage : Page
             return;
         }
         AutostartSwitch.IsEnabled = false;
+        AutostartRing.IsIndeterminate = true;
+        AutostartRing.Visibility = System.Windows.Visibility.Visible;
         AutostartStateText.Text = enabled ? "正在开启…" : "正在关闭…";
         try
         {
@@ -103,6 +113,8 @@ public partial class SettingsPage : Page
         }
         finally
         {
+            AutostartRing.IsIndeterminate = false;
+            AutostartRing.Visibility = System.Windows.Visibility.Collapsed;
             AutostartSwitch.IsEnabled = true;
             // The switch shows what is set up, not what was asked for.
             Refresh();

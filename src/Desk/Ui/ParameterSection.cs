@@ -25,7 +25,15 @@ internal sealed class ParameterSection
         _panel = panel;
         _emptyHint = emptyHint;
         _reset = reset;
-        _reset.Click += (_, _) => _app.ResetParameters(_parameters.Select(p => p.Name));
+        _reset.Click += async (_, _) =>
+        {
+            // There is no undo, and the values may have taken a while to tune.
+            if (await UiHost.ConfirmAsync("恢复默认？", "这一组滑块会回到主题自带的数值，调整过的数值不会保留。", "恢复默认"))
+            {
+                _app.ResetParameters(_parameters.Select(p => p.Name));
+                UiHost.Toast("已恢复默认", "现在用的是主题自带的数值。");
+            }
+        };
     }
 
     public void Refresh()
