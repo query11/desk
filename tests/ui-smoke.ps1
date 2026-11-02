@@ -157,7 +157,10 @@ function Write-Layout($window, [string]$title) {
     $origin = $window.Current.BoundingRectangle
     Write-Host "----- layout: $title (window $([int]$origin.Width)x$([int]$origin.Height))"
     $shown = 0
-    foreach ($element in (Get-Elements $window | Select-Object -Skip 1)) {
+    $index = 0
+    # foreach, not a pipeline: Get-Elements hands back the list as one object.
+    foreach ($element in (Get-Elements $window)) {
+        if ($index++ -eq 0) { continue }  # the window itself
         try {
             $c = $element.Current
             $box = $c.BoundingRectangle
