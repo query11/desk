@@ -30,17 +30,16 @@ public static class Native {
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, int dx, int dy, uint data, IntPtr extra);
 }
 '@
 
 $A = [System.Windows.Automation.AutomationElement]
 $Tree = [System.Windows.Automation.TreeScope]
-
-# Searches see the raw tree: page titles and dialog texts sit inside control
+# Searches walk the raw tree: page titles and dialog texts sit inside control
 # templates, which the default (control) view leaves out.
-$rawView = New-Object System.Windows.Automation.CacheRequest
-$rawView.TreeFilter = [System.Windows.Automation.Automation]::RawViewCondition
-$rawView.Push()
+$Raw = [System.Windows.Automation.TreeWalker]::RawViewWalker
 $failures = New-Object System.Collections.Generic.List[string]
 
 function Fail([string]$message) {
@@ -69,21 +68,70 @@ function Wait-Until([scriptblock]$condition, [int]$seconds = 10) {
     return $null
 }
 
-function Find-All($root, $property, $value) {
-    $condition = New-Object System.Windows.Automation.PropertyCondition($property, $value)
-    return $root.FindAll($Tree::Descendants, $condition)
+# Everything under $root, depth first, in reading order.
+function Get-Elements($root, [int]$limit = 4000) {
+    $list = New-Object System.Collections.Generic.List[object]
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($root)
+    while ($stack.Count -gt 0 -and $list.Count -lt $limit) {
+        $element = $stack.Pop()
+        $list.Add($element)
+        try {
+            $child = $Raw.GetLastChild($element)
+            while ($child -ne $null) { $stack.Push($child); $child = $Raw.GetPreviousSibling($child) }
+        } catch { }
+    }
+    return ,$list
 }
 
-function Find-One($root, $property, $value) {
-    $condition = New-Object System.Windows.Automation.PropertyCondition($property, $value)
-    return $root.FindFirst($Tree::Descendants, $condition)
+function Find-Element($root, [scriptblock]$match) {
+    foreach ($element in (Get-Elements $root)) {
+        try { if (& $match $element.Current) { return $element } } catch { }
+    }
+    return $null
 }
 
-function Find-Id($root, [string]$id) { Find-One $root $A::AutomationIdProperty $id }
-function Find-Name($root, [string]$name) { Find-One $root $A::NameProperty $name }
+function Find-Id($root, [string]$id) {
+    Find-Element $root ({ param($c) $c.AutomationId -eq $id }.GetNewClosure())
+}
 
-function Invoke-Element($element) {
-    $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+function Find-Name($root, [string]$name, $type = $null) {
+    Find-Element $root ({ param($c) $c.Name -eq $name -and ($type -eq $null -or $c.ControlType -eq $type) }.GetNewClosure())
+}
+
+# What UI Automation sees, once, when something expected is missing.
+$script:treeShown = $false
+function Write-Tree($root) {
+    if ($script:treeShown) { return }
+    $script:treeShown = $true
+    $origin = $root.Current.BoundingRectangle
+    Write-Host "----- raw tree of '$($root.Current.Name)' ($($root.Current.ClassName)):"
+    foreach ($element in (Get-Elements $root 250)) {
+        try {
+            $c = $element.Current
+            $box = $c.BoundingRectangle
+            $type = $c.ControlType.ProgrammaticName -replace '^ControlType\.', ''
+            Write-Host ("  {0} '{1}' #{2} [{3}] @{4},{5} {6}x{7}" -f $type, $c.Name, $c.AutomationId, $c.ClassName,
+                [int]($box.Left - $origin.Left), [int]($box.Top - $origin.Top), [int]$box.Width, [int]$box.Height)
+        } catch { }
+    }
+}
+
+# Invoke or select through UI Automation; a real mouse click otherwise.
+function Click($element, [string]$what) {
+    if (-not $element) { Fail "$what not found"; return $false }
+    [object]$pattern = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+        $pattern.Invoke()
+    } elseif ($element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) {
+        $pattern.Select()
+    } else {
+        $box = $element.Current.BoundingRectangle
+        [Native]::SetCursorPos([int]($box.Left + $box.Width / 2), [int]($box.Top + $box.Height / 2)) | Out-Null
+        [Native]::mouse_event(2, 0, 0, 0, [IntPtr]::Zero)
+        [Native]::mouse_event(4, 0, 0, 0, [IntPtr]::Zero)
+    }
+    return $true
 }
 
 function Save-Shot($window, [string]$name) {
@@ -115,8 +163,7 @@ function Write-Layout($window, [string]$title) {
         $item = $stack.Pop()
         $element = $item[0]
         $depth = $item[1]
-        $current = $element.Current
-        $box = $current.BoundingRectangle
+        try { $current = $element.Current; $box = $current.BoundingRectangle } catch { continue }
         if ($depth -gt 0 -and -not $box.IsEmpty -and -not $current.IsOffscreen) {
             $type = $current.ControlType.ProgrammaticName -replace '^ControlType\.', ''
             $name = $current.Name
@@ -131,8 +178,10 @@ function Write-Layout($window, [string]$title) {
             if ($flag) { Fail "$title`: '$($current.Name)' goes past the right edge of the window" }
         }
         $children = New-Object System.Collections.Generic.List[object]
-        $child = $walker.GetFirstChild($element)
-        while ($child -ne $null) { $children.Add($child); $child = $walker.GetNextSibling($child) }
+        try {
+            $child = $walker.GetFirstChild($element)
+            while ($child -ne $null) { $children.Add($child); $child = $walker.GetNextSibling($child) }
+        } catch { }
         for ($i = $children.Count - 1; $i -ge 0; $i--) { $stack.Push(@($children[$i], $depth + 1)) }
     }
 }
@@ -147,6 +196,8 @@ function Start-Desk([int]$light) {
         foreach ($w in $found) { if ($w.Current.Name -eq 'Desk' -and $w.Current.ClassName -notmatch 'Tray') { return $w } }
     } 30
     if (-not $window) { throw 'The settings window did not open' }
+    $box = $window.Current.BoundingRectangle
+    Write-Host "Window '$($window.Current.Name)' [$($window.Current.ClassName)] $([int]$box.Width)x$([int]$box.Height), light=$light"
     return @($process, $window)
 }
 
@@ -157,31 +208,25 @@ function Set-Size($window, [int]$width, [int]$height) {
     Start-Sleep -Milliseconds 800
 }
 
-# The pane's items, top to bottom: 概览, 任务栏, 开始菜单, 设置.
-function Get-NavItems($window) {
-    $items = @(Find-All $window $A::ControlTypeProperty ([System.Windows.Automation.ControlType]::TabItem))
-    return $items | Sort-Object { $_.Current.BoundingRectangle.Top }
-}
-
 $pages = @('概览', '任务栏', '开始菜单', '设置')
+$navIds = @('NavHome', 'NavTaskbar', 'NavStartMenu', 'NavSettings')
 
 function Open-Page($window, [int]$index) {
-    $items = Get-NavItems $window
-    if ($items.Count -lt 4) { Fail "expected 4 navigation items, found $($items.Count)"; return $false }
-    $items[$index].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    $item = Find-Id $window $navIds[$index]
+    if (-not $item) { Write-Tree $window }
+    if (-not (Click $item "navigation item $($navIds[$index])")) { return $false }
     Start-Sleep -Milliseconds 900
     return Assert-Title $window $pages[$index]
 }
 
 # The pinned page title shows the page that is open.
 function Assert-Title($window, [string]$expected) {
+    $left = $window.Current.BoundingRectangle.Left + 40
     $title = Wait-Until {
-        foreach ($t in (Find-All $window $A::NameProperty $expected)) {
-            $box = $t.Current.BoundingRectangle
-            if ($box.Height -ge 30 -and $box.Left -gt $window.Current.BoundingRectangle.Left + 40) { return $t }
-        }
+        Find-Element $window ({ param($c) $c.Name -eq $expected -and $c.BoundingRectangle.Height -ge 30 -and
+            $c.BoundingRectangle.Left -gt $left }.GetNewClosure())
     } 5
-    if (-not $title) { Fail "page title '$expected' not shown"; return $false }
+    if (-not $title) { Fail "page title '$expected' not shown"; Write-Tree $window; return $false }
     return $true
 }
 
@@ -196,18 +241,13 @@ function Visit-Pages($window, [string]$prefix, [bool]$layout) {
 
 # Clicks a button that opens a confirmation, checks the dialog, then answers it.
 function Confirm-Dialog($window, [string]$button, [string]$title, [string]$answer, [string]$shot) {
-    Invoke-Element (Find-Id $window $button)
+    if (-not (Click (Find-Id $window $button) $button)) { return }
     $dialogTitle = Wait-Until { Find-Name $window $title } 5
-    if (-not $dialogTitle) { Fail "dialog '$title' did not open"; return }
+    if (-not $dialogTitle) { Fail "dialog '$title' did not open"; Write-Tree $window; return }
     Start-Sleep -Milliseconds 500
     Save-Shot $window $shot
-    $choice = Wait-Until {
-        foreach ($b in (Find-All $window $A::NameProperty $answer)) {
-            if ($b.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button) { return $b }
-        }
-    } 5
-    if (-not $choice) { Fail "dialog '$title' has no '$answer' button"; return }
-    Invoke-Element $choice
+    $choice = Wait-Until { Find-Name $window $answer ([System.Windows.Automation.ControlType]::Button) } 5
+    Click $choice "'$answer' in dialog '$title'" | Out-Null
 }
 
 function Stop-Desk($window, $process, [string]$prefix) {
@@ -226,7 +266,7 @@ Visit-Pages $window 'light-wide' $true
 
 # Feedback and confirmations on the overview.
 Open-Page $window 0 | Out-Null
-Invoke-Element (Find-Id $window 'ReapplyButton')
+Click (Find-Id $window 'ReapplyButton') 'ReapplyButton' | Out-Null
 if (-not (Wait-Until { Find-Name $window '已重新应用' } 5)) { Fail 'no toast after 重新应用' }
 Start-Sleep -Milliseconds 400
 Save-Shot $window 'light-toast'
@@ -234,7 +274,7 @@ Confirm-Dialog $window 'RestartExplorerButton' '重启资源管理器？' '取�
 if (-not (Wait-Until { -not (Find-Name $window '重启资源管理器？') } 5)) { Fail 'the restart dialog did not close on 取消' }
 
 # A status tile opens its page.
-Invoke-Element (Find-Id $window 'TaskbarTile')
+Click (Find-Id $window 'TaskbarTile') 'TaskbarTile' | Out-Null
 Start-Sleep -Milliseconds 900
 Assert-Title $window '任务栏' | Out-Null
 

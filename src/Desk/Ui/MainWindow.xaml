@@ -52,24 +52,36 @@
                     Margin="40,20,40,20" />
             </ui:NavigationView.Header>
             <ui:NavigationView.MenuItems>
-                <ui:NavigationViewItem Content="概览" TargetPageType="{x:Type pages:HomePage}">
+                <ui:NavigationViewItem
+                    x:Name="NavHome"
+                    Content="概览"
+                    TargetPageType="{x:Type pages:HomePage}">
                     <ui:NavigationViewItem.Icon>
                         <ui:SymbolIcon Symbol="Home24" />
                     </ui:NavigationViewItem.Icon>
                 </ui:NavigationViewItem>
-                <ui:NavigationViewItem Content="任务栏" TargetPageType="{x:Type pages:TaskbarPage}">
+                <ui:NavigationViewItem
+                    x:Name="NavTaskbar"
+                    Content="任务栏"
+                    TargetPageType="{x:Type pages:TaskbarPage}">
                     <ui:NavigationViewItem.Icon>
                         <ui:SymbolIcon Symbol="TabDesktopBottom24" />
                     </ui:NavigationViewItem.Icon>
                 </ui:NavigationViewItem>
-                <ui:NavigationViewItem Content="开始菜单" TargetPageType="{x:Type pages:StartMenuPage}">
+                <ui:NavigationViewItem
+                    x:Name="NavStartMenu"
+                    Content="开始菜单"
+                    TargetPageType="{x:Type pages:StartMenuPage}">
                     <ui:NavigationViewItem.Icon>
                         <ui:SymbolIcon Symbol="Apps24" />
                     </ui:NavigationViewItem.Icon>
                 </ui:NavigationViewItem>
             </ui:NavigationView.MenuItems>
             <ui:NavigationView.FooterMenuItems>
-                <ui:NavigationViewItem Content="设置" TargetPageType="{x:Type pages:SettingsPage}">
+                <ui:NavigationViewItem
+                    x:Name="NavSettings"
+                    Content="设置"
+                    TargetPageType="{x:Type pages:SettingsPage}">
                     <ui:NavigationViewItem.Icon>
                         <ui:SymbolIcon Symbol="Settings24" />
                     </ui:NavigationViewItem.Icon>
