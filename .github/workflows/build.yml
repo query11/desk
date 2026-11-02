@@ -56,22 +56,6 @@ jobs:
             -p:PublishSingleFile=true -o dist/Desk 2>&1 | Tee-Object -FilePath build/desk-build.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
-      # Opens every page of the settings window (without the engine) and
-      # fails if the window throws; screenshots go to the ui-smoke artifact.
-      - name: Test the settings window
-        if: hashFiles('src/Desk/Desk.csproj') != ''
-        shell: powershell
-        run: |
-          & tests/ui-smoke.ps1 -Publish dist/Desk -Themes themes -Out build/ui-smoke
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-
-      - name: Upload settings window screenshots
-        if: always() && hashFiles('build/ui-smoke/*.png') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: ui-smoke-${{ github.sha }}
-          path: build/ui-smoke
-
       - name: Package
         shell: pwsh
         run: |
@@ -87,6 +71,23 @@ jobs:
           name: Desk-${{ github.sha }}
           path: dist/Desk
           if-no-files-found: error
+
+      # Opens every page of the settings window (without the engine) and
+      # fails if the window throws; screenshots go to the ui-smoke artifact.
+      # After the upload, so the build can be downloaded either way.
+      - name: Test the settings window
+        if: hashFiles('src/Desk/Desk.csproj') != ''
+        shell: powershell
+        run: |
+          & tests/ui-smoke.ps1 -Publish dist/Desk -Themes themes -Out build/ui-smoke
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Upload settings window screenshots
+        if: always() && hashFiles('build/ui-smoke/*.png') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-smoke-${{ github.sha }}
+          path: build/ui-smoke
 
       # Last step, so that the warnings end up at the tail of the log.
       - name: Warnings summary

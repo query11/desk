@@ -55,7 +55,7 @@ $app = Join-Path $env:RUNNER_TEMP 'desk-ui-smoke'
 Remove-Item -Recurse -Force $app -ErrorAction SilentlyContinue
 Copy-Item -Recurse $Publish $app
 Remove-Item -Force (Join-Path $app 'DeskTap.dll') -ErrorAction SilentlyContinue
-Copy-Item -Recurse -Force $Themes (Join-Path $app 'themes')
+if (-not (Test-Path (Join-Path $app 'themes'))) { Copy-Item -Recurse $Themes (Join-Path $app 'themes') }
 $logs = Join-Path $env:LOCALAPPDATA 'Desk\logs'
 
 function Wait-Until([scriptblock]$condition, [int]$seconds = 10) {
@@ -222,10 +222,10 @@ function Open-Page($window, [int]$index) {
 # The pinned page title shows the page that is open.
 function Assert-Title($window, [string]$expected) {
     $left = $window.Current.BoundingRectangle.Left + 40
-    $title = Wait-Until {
-        Find-Element $window ({ param($c) $c.Name -eq $expected -and $c.BoundingRectangle.Height -ge 30 -and
-            $c.BoundingRectangle.Left -gt $left }.GetNewClosure())
-    } 5
+    # Built here: GetNewClosure only captures the variables of the scope it runs in.
+    $isTitle = { param($c) $c.Name -eq $expected -and $c.BoundingRectangle.Height -ge 30 -and
+        $c.BoundingRectangle.Left -gt $left }.GetNewClosure()
+    $title = Wait-Until { Find-Element $window $isTitle } 5
     if (-not $title) { Fail "page title '$expected' not shown"; Write-Tree $window; return $false }
     return $true
 }
