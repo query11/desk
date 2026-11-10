@@ -13,7 +13,9 @@ internal sealed record ParameterInfo(
     double Maximum,
     double Step,
     bool PerMode,
-    Func<double, string> Format);
+    Func<double, string> Format,
+    bool Advanced = false,
+    bool Inverted = false);
 
 /// <summary>
 /// The constants of the built-in themes that can be tuned. Material values
@@ -23,23 +25,25 @@ internal static class Parameters
 {
     public static readonly IReadOnlyList<ParameterInfo> Taskbar =
     [
-        new("radius", "圆角", "浮岛四个角的圆润程度。", SymbolRegular.BorderOutside24, 0, 20, 1, false, Pixels),
-        new("gap", "上下留白", "浮岛和任务栏上下边缘的距离，越大越像“浮”起来。", SymbolRegular.ArrowAutofitHeight24, 0, 8, 1, false, Pixels),
+        new("iconSize", "图标大小", "只调整图标，推荐 28 px。", SymbolRegular.Apps24, 24, 36, 2, false, Pixels),
+        new("islandOpacity", "透明程度", "越高着色越淡。", SymbolRegular.Color24, 0, 1, 0.01, true, Percent, Inverted: true),
+        new("buttonWidth", "图标间距", "按钮占位宽度，越大越疏松。", SymbolRegular.ArrowAutofitWidth24, 40, 64, 2, false, Pixels),
+        new("gap", "上下留白", "浮岛和任务栏上下边缘的距离。", SymbolRegular.ArrowAutofitHeight24, 0, 8, 1, false, Pixels),
+        new("radius", "圆角", "浮岛四个角的圆润程度。", SymbolRegular.BorderOutside24, 0, 28, 1, false, Pixels),
         new("islandBlur", "模糊", "背后壁纸和窗口的模糊程度。", SymbolRegular.Blur24, 0, 60, 1, false, Plain),
-        new("islandOpacity", "着色浓度", "越高越接近纯色，越低越透明。", SymbolRegular.Color24, 0, 1, 0.01, true, Percent),
-        new("islandLuminosity", "明暗统一", "越高文字越清晰、越不受壁纸明暗影响；越低越能看出背后的明暗。", SymbolRegular.BrightnessHigh24, 0, 1, 0.01, true, Percent),
-        new("islandSaturation", "色彩饱和度", "壁纸透过来的颜色有多鲜艳。", SymbolRegular.Drop24, 0.5, 2.5, 0.05, false, Percent),
-        new("islandNoise", "颗粒感", "像真实亚克力材质那样的细微颗粒。", SymbolRegular.Sparkle24, 0, 0.1, 0.005, false, Percent),
+        new("islandLuminosity", "明暗统一", "越高越少受到背景明暗影响，也会减弱透明感。", SymbolRegular.BrightnessHigh24, 0, 1, 0.01, true, Percent, Advanced: true),
+        new("islandSaturation", "色彩饱和度", "背景颜色的鲜艳程度。", SymbolRegular.Drop24, 0.5, 2.5, 0.05, false, Percent, Advanced: true),
+        new("islandNoise", "颗粒感", "亚克力表面的细微颗粒，通常只需要少量。", SymbolRegular.Sparkle24, 0, 0.1, 0.005, false, Percent, Advanced: true),
     ];
 
     public static readonly IReadOnlyList<ParameterInfo> StartMenu =
     [
-        new("menuRadius", "圆角", "开始菜单四个角的圆润程度。", SymbolRegular.BorderOutside24, 0, 20, 1, false, Pixels),
-        new("menuBlur", "模糊", "背后壁纸和窗口的模糊程度。越低越通透。", SymbolRegular.Blur24, 0, 60, 1, false, Plain),
-        new("menuOpacity", "着色浓度", "越高越接近纯色，越低越透明。", SymbolRegular.Color24, 0, 1, 0.01, true, Percent),
-        new("menuLuminosity", "明暗统一", "越高文字越清晰、越不受壁纸明暗影响；越低越能看出背后的明暗。", SymbolRegular.BrightnessHigh24, 0, 1, 0.01, true, Percent),
-        new("menuSaturation", "色彩饱和度", "壁纸透过来的颜色有多鲜艳。", SymbolRegular.Drop24, 0.5, 2.5, 0.05, false, Percent),
-        new("menuNoise", "颗粒感", "像真实亚克力材质那样的细微颗粒。", SymbolRegular.Sparkle24, 0, 0.1, 0.005, false, Percent),
+        new("menuOpacity", "透明程度", "越高着色越淡。", SymbolRegular.Color24, 0, 1, 0.01, true, Percent, Inverted: true),
+        new("menuRadius", "圆角", "开始菜单四个角的圆润程度。", SymbolRegular.BorderOutside24, 0, 32, 1, false, Pixels),
+        new("menuBlur", "模糊", "越高背景轮廓越柔和；透明程度由下一项调整。", SymbolRegular.Blur24, 0, 60, 1, false, Plain),
+        new("menuLuminosity", "明暗统一", "越高越少受到背景明暗影响，也会减弱透明感。", SymbolRegular.BrightnessHigh24, 0, 1, 0.01, true, Percent, Advanced: true),
+        new("menuSaturation", "色彩饱和度", "背景颜色的鲜艳程度。", SymbolRegular.Drop24, 0.5, 2.5, 0.05, false, Percent, Advanced: true),
+        new("menuNoise", "颗粒感", "亚克力表面的细微颗粒，通常只需要少量。", SymbolRegular.Sparkle24, 0, 0.1, 0.005, false, Percent, Advanced: true),
     ];
 
     private static string Pixels(double value) => value.ToString("0", CultureInfo.InvariantCulture) + " px";

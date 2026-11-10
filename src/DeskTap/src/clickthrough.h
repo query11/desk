@@ -7,6 +7,8 @@ namespace desk::clickthrough {
 
 // A DesktopWindowXamlSource (island root) was reported.
 void OnIslandRoot(wf::IInspectable const& inspectable);
+// Resolve the native host of this XAML root, also when click-through is off.
+HWND WindowForRoot(wux::XamlRoot const& root);
 
 // An element was added. Only TaskbarFrame and SystemTrayFrame matter.
 // `configured`: click-through in the newest configuration; it only counts

@@ -33,6 +33,12 @@ internal enum EngineStatus
     /// <summary>The current configuration is applied.</summary>
     Active,
 
+    /// <summary>Styles applied, but some styles or blur effects failed.</summary>
+    Degraded,
+
+    /// <summary>Windows requested solid backgrounds (transparency or energy saver).</summary>
+    EffectsReduced,
+
     /// <summary>The engine couldn't initialize; retried automatically or on re-apply.</summary>
     EngineFailed,
 
@@ -74,12 +80,17 @@ internal sealed record EngineReport(
     string? HostReason,
     IReadOnlyDictionary<string, long> Counters)
 {
+    public int FallbackBrushes { get; init; }
+    public int RenderFailures { get; init; }
+    public string? RenderErrorCode { get; init; }
+
     public static EngineReport Parse(string json)
     {
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         var error = root.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.Object ? e : default;
         var host = root.TryGetProperty("host", out var h) && h.ValueKind == JsonValueKind.Object ? h : default;
+        var material = root.TryGetProperty("material", out var m) && m.ValueKind == JsonValueKind.Object ? m : default;
         var counters = new Dictionary<string, long>(StringComparer.Ordinal);
         if (root.TryGetProperty("counters", out var c) && c.ValueKind == JsonValueKind.Object)
         {
@@ -114,7 +125,12 @@ internal sealed record EngineReport(
             Str(host, "state") ?? "none",
             Str(host, "session"),
             Str(host, "reason"),
-            counters);
+            counters)
+        {
+            FallbackBrushes = Math.Max(0, Int(material, "fallbacks")),
+            RenderFailures = Math.Max(0, Int(material, "failures")),
+            RenderErrorCode = Str(material, "hr"),
+        };
     }
 
     private static string? Str(JsonElement element, string name) =>
@@ -316,11 +332,32 @@ internal static class EngineStatusEvaluator
         }
         return report.Apply switch
         {
-            "applied" => new TargetStatus(EngineStatus.Active,
-                report.Errors > 0 ? $"{report.Errors} 条样式没能应用，详见日志" : null),
+            "applied" => AppliedStatus(report),
             "noMatch" => new TargetStatus(EngineStatus.NoTargets),
             _ => new TargetStatus(EngineStatus.Applying),
         };
+    }
+
+    private static TargetStatus AppliedStatus(EngineReport report)
+    {
+        var problems = new List<string>();
+        if (report.RenderFailures > 0)
+        {
+            string code = report.RenderErrorCode is { } hr ? $"（0x{hr}）" : "";
+            problems.Add($"{report.RenderFailures} 处毛玻璃创建失败，已退回纯色{code}");
+        }
+        if (report.Errors > 0)
+        {
+            problems.Add($"{report.Errors} 条样式没能应用");
+        }
+        if (problems.Count > 0)
+        {
+            return new TargetStatus(EngineStatus.Degraded,
+                string.Join("；", problems) + "。可点「重新应用」重试，仍失败请导出诊断");
+        }
+        return report.FallbackBrushes > 0
+            ? new TargetStatus(EngineStatus.EffectsReduced, "系统关闭了透明效果或开启了节能模式，当前使用纯色背景")
+            : new TargetStatus(EngineStatus.Active);
     }
 
     private static string Describe(InjectResult? failure) => failure == null

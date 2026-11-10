@@ -390,7 +390,7 @@ winrt::Windows::UI::Color SolidFallbackColor(const BlurParams& params) {
 void SetAnimatedValues(wuc::CompositionEffectBrush const& brush, const BlurParams& params) {
     auto properties = brush.Properties();
     properties.InsertScalar(kBlurAmount, params.blurAmount);
-    properties.InsertVector4(kTintColor, TintVector(params.tint));
+    properties.InsertColor(kTintColor, params.tint);
 }
 
 }  // namespace
@@ -434,6 +434,7 @@ DeskBlurBrush::DeskBlurBrush(wux::UIElement const& element, BlurParams params)
 }
 
 DeskBlurBrush::~DeskBlurBrush() {
+    status::ClearBlurFallback(this);
     status::Count(status::kBlurBrushesReleased);
     try {
         if (m_uiSettings && m_advancedEffectsToken.value) {
@@ -457,12 +458,16 @@ void DeskBlurBrush::OnConnected() {
     try {
         if (ShouldUseFallback()) {
             CompositionBrush(CreateFallbackBrush());
+            status::SetBlurFallback(this, S_OK);
         } else {
             CompositionBrush(CreateEffectBrush());
+            status::ClearBlurFallback(this);
         }
     } catch (...) {
+        auto hr = winrt::to_hresult();
         DLOG(L"Blur brush: falling back to a solid color: %08X",
-             winrt::to_hresult().value);
+             hr.value);
+        status::SetBlurFallback(this, hr.value);
         try {
             CompositionBrush(CreateFallbackBrush());
         } catch (...) {
@@ -471,6 +476,7 @@ void DeskBlurBrush::OnConnected() {
 }
 
 void DeskBlurBrush::OnDisconnected() {
+    status::ClearBlurFallback(this);
     if (auto brush = CompositionBrush()) {
         brush.Close();
         CompositionBrush(nullptr);
@@ -500,6 +506,7 @@ HRESULT DeskBlurBrush::UpdateParams(const BlurParams* params) noexcept try {
         if (auto color = brush.try_as<wuc::CompositionColorBrush>();
             color && ShouldUseFallback()) {
             color.Color(SolidFallbackColor(m_params));
+            status::SetBlurFallback(this, S_OK);
             status::Count(status::kBlurInPlaceUpdates);
             return S_OK;
         }

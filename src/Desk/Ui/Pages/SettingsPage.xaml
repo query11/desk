@@ -7,6 +7,8 @@
     xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
     Title="设置">
     <StackPanel Style="{StaticResource Desk.Page}">
+        <TextBlock Style="{StaticResource Desk.PageTitle}" Text="按你的习惯运行" />
+        <TextBlock Style="{StaticResource Desk.Lead}" Text="管理启动、个人主题与诊断。关闭设置窗口后，Desk 会继续在托盘中运行。" />
 
         <TextBlock Style="{StaticResource Desk.FirstSectionHeader}" Text="启动" />
         <ui:CardControl>

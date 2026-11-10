@@ -5,8 +5,8 @@
     xmlns:pages="clr-namespace:Desk.Ui.Pages"
     xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
     Title="Desk"
-    Width="1040"
-    Height="760"
+    Width="1160"
+    Height="840"
     MinWidth="720"
     MinHeight="560"
     ExtendsContentIntoTitleBar="True"
@@ -16,6 +16,7 @@
     WindowStartupLocation="CenterScreen">
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
@@ -28,6 +29,16 @@
                 <ui:ImageIcon Source="pack://application:,,,/Desk;component/Assets/desk.png" />
             </ui:TitleBar.Icon>
         </ui:TitleBar>
+        <Border x:Name="TrialBanner" Grid.Row="1" Margin="16,4,16,8" Padding="16,10" CornerRadius="12"
+                Background="{DynamicResource SystemFillColorAttentionBackgroundBrush}" Visibility="Collapsed">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <ui:Button x:Name="CancelTrialButton" Content="立即还原" Margin="12,0,8,0" />
+                    <ui:Button x:Name="KeepTrialButton" Content="保留这套" Appearance="Primary" />
+                </StackPanel>
+                <TextBlock x:Name="TrialText" VerticalAlignment="Center" TextWrapping="Wrap" />
+            </DockPanel>
+        </Border>
 
         <!--
             The page title sits in the header, outside the scrolling area, so it
@@ -36,12 +47,12 @@
         -->
         <ui:NavigationView
             x:Name="Navigation"
-            Grid.Row="1"
-            Padding="40,0,40,40"
+            Grid.Row="2"
+            Padding="28,0,28,32"
             BreadcrumbBar="{Binding ElementName=PageTitle}"
             IsBackButtonVisible="Collapsed"
             IsPaneToggleVisible="False"
-            OpenPaneLength="220"
+            OpenPaneLength="200"
             PaneDisplayMode="Left"
             TitleBar="{Binding ElementName=TitleBar, Mode=OneWay}"
             Transition="FadeInWithSlide">
@@ -49,7 +60,7 @@
                 <ui:BreadcrumbBar
                     x:Name="PageTitle"
                     MaxWidth="{StaticResource Desk.ContentMaxWidth}"
-                    Margin="40,20,40,20" />
+                    Margin="28,16,28,20" />
             </ui:NavigationView.Header>
             <ui:NavigationView.MenuItems>
                 <ui:NavigationViewItem
@@ -58,6 +69,11 @@
                     TargetPageType="{x:Type pages:HomePage}">
                     <ui:NavigationViewItem.Icon>
                         <ui:SymbolIcon Symbol="Home24" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem x:Name="NavAppearance" Content="外观方案" TargetPageType="{x:Type pages:AppearancePage}">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="PaintBrush24" />
                     </ui:NavigationViewItem.Icon>
                 </ui:NavigationViewItem>
                 <ui:NavigationViewItem
@@ -78,6 +94,9 @@
                 </ui:NavigationViewItem>
             </ui:NavigationView.MenuItems>
             <ui:NavigationView.FooterMenuItems>
+                <ui:NavigationViewItem x:Name="NavDisplays" Content="显示器" TargetPageType="{x:Type pages:DisplaysPage}">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Desktop24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
                 <ui:NavigationViewItem
                     x:Name="NavSettings"
                     Content="设置"
@@ -98,6 +117,6 @@
         <ui:ContentDialogHost
             x:Name="Dialogs"
             Grid.Row="0"
-            Grid.RowSpan="2" />
+            Grid.RowSpan="3" />
     </Grid>
 </ui:FluentWindow>

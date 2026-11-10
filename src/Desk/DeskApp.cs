@@ -15,6 +15,9 @@ internal sealed partial class DeskApp : ApplicationContext
     private const string DefaultTheme = "desk-islands";
 
     private readonly Settings _settings;
+    private readonly ThemeLibraryStore _library;
+    private readonly ThemeTrialController _themeTrial;
+    private readonly System.Windows.Forms.Timer _trialTimer = new() { Interval = 250 };
     private readonly Control _invoker = new();
     private readonly NotifyIcon _tray;
     private readonly MessageWindow _messages;
@@ -59,6 +62,18 @@ internal sealed partial class DeskApp : ApplicationContext
     {
         _ = _invoker.Handle; // Create it now, to marshal callbacks to this thread.
         _settings = Settings.Load();
+        if (ThemeTrialController.RecoverInterrupted(_settings)) _settings.Save();
+        _library = new ThemeLibraryStore(Paths.BuiltInThemesDir, Paths.UserThemesDir, _settings, _settings.Save);
+        _themeTrial = new ThemeTrialController(_settings, _settings.Save, () =>
+        {
+            LoadTheme(); Apply(); StateChanged?.Invoke();
+        }, TimeProvider.System);
+        _themeTrial.Changed += () => { _trialTimer.Enabled = _themeTrial.Pending != null; TrialChanged?.Invoke(); };
+        _trialTimer.Tick += (_, _) =>
+        {
+            try { _themeTrial.Tick(); }
+            catch (Exception error) { Log.Warn("Trial rollback will retry: " + error.Message); }
+        };
         _lightMode = ReadLightMode();
 
         // Get the engine going first; the taskbar should change as soon as
@@ -132,6 +147,7 @@ internal sealed partial class DeskApp : ApplicationContext
 
         _windows.MaximizedChanged += Apply;
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+        SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
         WatchThemes();
 
         _applySoon.Tick += (_, _) =>
@@ -349,6 +365,11 @@ internal sealed partial class DeskApp : ApplicationContext
         });
     }
 
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e) => RunOnUi(() =>
+    {
+        _windows.Refresh(); Apply(); StateChanged?.Invoke();
+    });
+
     // ----------------------------------------------------------------- apply
 
     /// <summary>Whether the Start menu uses the light variant of the theme.</summary>
@@ -376,8 +397,14 @@ internal sealed partial class DeskApp : ApplicationContext
             taskbarRules.Add(new RuleSpec(
                 "Taskbar.AugmentedEntryPointButton#AugmentedEntryPointButton", ["Visibility=Collapsed"]));
         }
+        var displayProfiles = _theme == null ? [] : DisplayTopology.Read().Select(display =>
+            DisplayRuntimePlanner.Build(_theme, _settings, _settings.Displays.GetValueOrDefault(display.Id), display.Device,
+                _windows.IsMaximized(display.Device), _lightMode, TaskbarCentered())).ToList();
         _runtime.Write(RuntimeWriter.ExplorerFile, enabled, enabled && _settings.ClickThrough, taskbarRules,
-            monitor);
+            monitor, layout: new TaskbarLayoutConfig(
+                enabled && !merge && GetParameter(ParameterScope.Taskbar, "adaptiveLayout") == 1,
+                GetParameter(ParameterScope.Taskbar, "buttonWidth") ?? 48,
+                GetParameter(ParameterScope.Taskbar, "iconSize") ?? 28), displays: displayProfiles);
 
         bool startMenu = enabled && _settings.StyleStartMenu;
         var startRules = startMenu
@@ -605,9 +632,12 @@ internal sealed partial class DeskApp : ApplicationContext
     {
         Log.Info("Exiting: restoring the taskbar and Start menu");
         _exiting = true;
+        _trialTimer.Dispose();
+        ThemeTrialController.RecoverInterrupted(_settings);
         _timer.Stop();
         _applySoon.Stop();
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+        SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         _showWindowWait.Unregister(null);
         _showWindowEvent.Dispose();
         _restoreWait.Unregister(null);

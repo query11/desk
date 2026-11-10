@@ -14,6 +14,10 @@ void OnElementRemoved(InstanceHandle handle);
 // Called from any thread after the configuration changed.
 void OnConfigChanged();
 
+// Re-evaluate just the elements whose adaptive geometry changed, on their UI thread.
+void RefreshLayout(const std::vector<InstanceHandle>& handles);
+void RefreshDisplayRoutes();
+
 // Runs `callback` on every XAML UI thread seen so far.
 void RunOnUiThreads(std::function<void()> callback);
 

@@ -94,6 +94,53 @@ public class EngineStatusTests
         Assert.Equal(EngineStatus.Applying, Evaluate(Report(), expected: 0).Status);
     }
 
+    private static EngineReport WithMaterial(int fallbacks, int failures, string? hr = null) =>
+        EngineReport.Parse(ReportJson().Replace("\"counters\":",
+            $"\"material\":{{\"fallbacks\":{fallbacks},\"failures\":{failures},\"hr\":{System.Text.Json.JsonSerializer.Serialize(hr)}}},\"counters\":"));
+
+    [Fact]
+    public void BlurFailureCannotBeReportedAsSuccessEvenWhenStylesApplied()
+    {
+        var report = WithMaterial(3, 3, "80070057");
+        Assert.Equal(0, report.Errors);
+        Assert.Equal(3, report.RenderFailures);
+        var status = Evaluate(report);
+        Assert.Equal(EngineStatus.Degraded, status.Status);
+        Assert.Contains("毛玻璃创建失败", status.Detail);
+        Assert.Contains("0x80070057", status.Detail);
+    }
+
+    [Fact]
+    public void WindowsReducedEffectsAreExplainedAndRecoverWithoutAStaleWarning()
+    {
+        Assert.Equal(EngineStatus.Degraded, Evaluate(WithMaterial(1, 1, "80070057")).Status);
+        var reduced = Evaluate(WithMaterial(1, 0));
+        Assert.Equal(EngineStatus.EffectsReduced, reduced.Status);
+        Assert.Contains("节能模式", reduced.Detail);
+        Assert.Equal(EngineStatus.Active, Evaluate(WithMaterial(0, 0)).Status);
+        // Older engines omit the optional field; their report still parses.
+        Assert.Equal(0, Report().FallbackBrushes);
+        Assert.Equal(EngineStatus.Active, Evaluate(Report()).Status);
+    }
+
+    [Fact]
+    public void StyleErrorsAndRenderErrorsBothRemainVisible()
+    {
+        var status = Evaluate(WithMaterial(2, 1, "80070057") with { Errors = 2 });
+        Assert.Equal(EngineStatus.Degraded, status.Status);
+        Assert.Contains("1 处毛玻璃", status.Detail);
+        Assert.Contains("2 条样式", status.Detail);
+        Assert.Equal(EngineStatus.Degraded, Evaluate(Report(errors: 1)).Status);
+    }
+
+    [Fact]
+    public void OldOrDisabledConfigurationDoesNotSurfaceMaterialWarnings()
+    {
+        var report = WithMaterial(1, 1, "80070057");
+        Assert.Equal(EngineStatus.Applying, Evaluate(report, expected: 501).Status);
+        Assert.Equal(EngineStatus.Off, Evaluate(report, wanted: false).Status);
+    }
+
     [Fact]
     public void QuickSuccessiveChangesStayApplyingUntilTheLastOneIsDone()
     {

@@ -283,6 +283,10 @@ std::wstring FormatPercent(std::optional<double> percent) {
 }
 
 struct Island {
+    MonitorConfig config;
+    wuxm::SolidColorBrush text{nullptr}, secondaryText{nullptr}, warning{nullptr};
+    int compactLevel = 0;
+    double networkWidth = 80, systemWidth = 58;
     winrt::weak_ref<wux::FrameworkElement> frame;
     winrt::weak_ref<wuxc::Panel> host;
     wuxc::Border border{nullptr};
@@ -418,23 +422,27 @@ Island Create() {
 }
 
 void Configure(Island& island, const ThreadState& state) {
-    const auto& config = state.config;
-    island.network.Visibility(config.network ? wux::Visibility::Visible
+    const auto& config = island.config;
+    bool network = config.network;
+    bool cpu = config.cpu && (island.compactLevel == 0 || !network);
+    bool memory = config.memory && (island.compactLevel == 0 || (!network && !cpu));
+    island.border.Visibility(island.compactLevel >= 2 ? wux::Visibility::Collapsed : wux::Visibility::Visible);
+    island.network.Visibility(network ? wux::Visibility::Visible
                                              : wux::Visibility::Collapsed);
-    island.cpuRow.Visibility(config.cpu ? wux::Visibility::Visible
+    island.cpuRow.Visibility(cpu ? wux::Visibility::Visible
                                         : wux::Visibility::Collapsed);
-    island.memoryRow.Visibility(config.memory ? wux::Visibility::Visible
+    island.memoryRow.Visibility(memory ? wux::Visibility::Visible
                                               : wux::Visibility::Collapsed);
-    island.system.Visibility(config.cpu || config.memory
+    island.system.Visibility(cpu || memory
                                  ? wux::Visibility::Visible
                                  : wux::Visibility::Collapsed);
     island.cpuLabel.Text(config.cpuLabel);
     island.memoryLabel.Text(config.memoryLabel);
     for (auto& text : island.secondaryTexts) {
-        text.Foreground(state.secondaryText);
+        text.Foreground(island.secondaryText);
     }
     for (auto& text : island.primaryTexts) {
-        text.Foreground(state.text);
+        text.Foreground(island.text);
     }
 }
 
@@ -447,7 +455,7 @@ void SetText(wuxc::TextBlock const& block, std::wstring& shown, std::wstring tex
 }
 
 void SetWarning(wuxc::TextBlock const& block, int& shown, bool warning,
-                const ThreadState& state, bool force) {
+                const Island& state, bool force) {
     if (force || shown != static_cast<int>(warning)) {
         block.Foreground(warning ? state.warning : state.text);
         shown = warning;
@@ -457,7 +465,7 @@ void SetWarning(wuxc::TextBlock const& block, int& shown, bool warning,
 // Only the parts that are shown, and only what changed. `force` after the
 // colors changed.
 void Show(Island& island, const ThreadState& state, const Stats& stats, bool force) {
-    const auto& config = state.config;
+    const auto& config = island.config;
     if (config.network) {
         SetText(island.upValue, island.shownUp, FormatSpeed(stats.up));
         SetText(island.downValue, island.shownDown, FormatSpeed(stats.down));
@@ -467,11 +475,11 @@ void Show(Island& island, const ThreadState& state, const Stats& stats, bool for
     };
     if (config.cpu) {
         SetText(island.cpuValue, island.shownCpu, FormatPercent(stats.cpu));
-        SetWarning(island.cpuValue, island.cpuWarning, high(stats.cpu), state, force);
+        SetWarning(island.cpuValue, island.cpuWarning, high(stats.cpu), island, force);
     }
     if (config.memory) {
         SetText(island.memoryValue, island.shownMemory, FormatPercent(stats.memory));
-        SetWarning(island.memoryValue, island.memoryWarning, high(stats.memory), state,
+        SetWarning(island.memoryValue, island.memoryWarning, high(stats.memory), island,
                    force);
     }
 }
@@ -505,7 +513,8 @@ void Unsubscribe(ThreadState& state) {
 }
 
 void Subscribe(ThreadState& state) {
-    uint8_t needs = NeedsFor(state.config);
+    uint8_t needs = 0;
+    for (auto const& island : state.islands) needs |= NeedsFor(island.config);
     if (!needs) {
         Unsubscribe(state);
         return;
@@ -554,6 +563,17 @@ void RemoveAll(ThreadState& state) {
 }
 
 void Ensure(ThreadState& state, wux::FrameworkElement const& frame) {
+    auto global = config::Current();
+    auto display = config::ForElement(*global, frame);
+    auto const& settings = display ? display->monitor : global->monitor;
+    bool enabled = global->enabled && settings.enabled;
+    auto configure = [&](Island& island) {
+        island.config = settings;
+        island.text = wuxm::SolidColorBrush(settings.text);
+        island.secondaryText = wuxm::SolidColorBrush(settings.secondaryText);
+        island.warning = wuxm::SolidColorBrush(settings.warning);
+        Configure(island, state);
+    };
     auto host = wuxm::VisualTreeHelper::GetParent(frame).try_as<wuxc::Panel>();
     if (!host) {
         DLOG(L"Monitor: the taskbar frame has no panel parent");
@@ -567,9 +587,10 @@ void Ensure(ThreadState& state, wux::FrameworkElement const& frame) {
             continue;
         }
         if (islandFrame == frame) {
+            if (!enabled) { Remove(*it); state.islands.erase(it); return; }
             uint32_t index = 0;
             if (it->host.get() == host && host.Children().IndexOf(it->border, index)) {
-                Configure(*it, state);
+                configure(*it);
                 return;
             }
             // The frame moved to another parent: start over.
@@ -580,6 +601,7 @@ void Ensure(ThreadState& state, wux::FrameworkElement const& frame) {
         ++it;
     }
 
+    if (!enabled) return;
     auto children = host.Children();
     for (uint32_t i = 0; i < children.Size();) {
         auto element = children.GetAt(i).try_as<wux::FrameworkElement>();
@@ -599,7 +621,7 @@ void Ensure(ThreadState& state, wux::FrameworkElement const& frame) {
         wuxc::Grid::SetColumnSpan(island.border, std::max(1, columns));
         wuxc::Grid::SetRowSpan(island.border, std::max(1, rows));
     }
-    Configure(island, state);
+    configure(island);
     Show(island, state, state.subscriber ? state.subscriber->Latest() : Stats{}, true);
     children.Append(island.border);
     DLOG(L"Monitor island added to %s", winrt::get_class_name(host).c_str());
@@ -609,7 +631,8 @@ void Ensure(ThreadState& state, wux::FrameworkElement const& frame) {
 }
 
 void Refresh(ThreadState& state, const Config& config) {
-    state.enabled = config.enabled && config.monitor.enabled;
+    state.enabled = config.enabled && (config.monitor.enabled || std::any_of(config.displays.begin(), config.displays.end(),
+        [](auto const& display) { return display.monitor.enabled; }));
     state.config = config.monitor;
     state.text = wuxm::SolidColorBrush(state.config.text);
     state.secondaryText = wuxm::SolidColorBrush(state.config.secondaryText);
@@ -642,7 +665,6 @@ void Refresh(ThreadState& state, const Config& config) {
         RemoveAll(state);
         return;
     }
-    Subscribe(state);
     for (const auto& weak : state.frames) {
         if (auto frame = weak.get()) {
             try {
@@ -652,6 +674,7 @@ void Refresh(ThreadState& state, const Config& config) {
             }
         }
     }
+    Subscribe(state);
     // New colors or newly shown parts: write everything once.
     auto stats = state.subscriber ? state.subscriber->Latest() : Stats{};
     for (auto& island : state.islands) {
@@ -697,6 +720,33 @@ void OnConfigApplied(const Config& config) {
         Refresh(State(), config);
     } catch (...) {
         DLOG(L"Monitor refresh failed: %08X", winrt::to_hresult().value);
+    }
+}
+
+std::pair<double, double> LayoutWidths(wux::FrameworkElement const& frame) {
+    if (!t_state || !t_state->enabled) return {0, 0};
+    for (auto& island : t_state->islands) {
+        if (island.frame.get() != frame) continue;
+        if (island.network.ActualWidth() > 0) island.networkWidth = island.network.ActualWidth();
+        if (island.system.ActualWidth() > 0) island.systemWidth = island.system.ActualWidth();
+        const auto& config = island.config;
+        double network = config.network ? island.networkWidth : 0;
+        double system = config.cpu || config.memory ? island.systemWidth : 0;
+        auto padding = island.border.Padding();
+        double edges = padding.Left + padding.Right + 2;
+        return {network + system + (network && system ? 14 : 0) + edges,
+                (network ? network : system) + edges};
+    }
+    return {0, 0};
+}
+
+void SetCompactLevel(wux::FrameworkElement const& frame, int level) {
+    if (!t_state) return;
+    for (auto& island : t_state->islands) {
+        if (island.frame.get() == frame && island.compactLevel != level) {
+            island.compactLevel = level;
+            Configure(island, *t_state);
+        }
     }
 }
 

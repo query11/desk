@@ -4,6 +4,8 @@
   "description": "原生布局的整条任务栏，背景换成实时模糊；开始菜单为通透的毛玻璃。",
 
   "constants": {
+    "iconSize": "28",
+    "buttonWidth": "48",
     "islandBlur": "30",
     "islandTint": { "light": "#F3F3F3", "dark": "#202020" },
     "islandOpacity": { "light": "0.5", "dark": "0.45" },
@@ -28,11 +30,24 @@
     },
 
     "barMaterial": "<DeskBlur BlurAmount=\"$islandBlur\" TintColor=\"$islandTint\" TintOpacity=\"$islandOpacity\" TintLuminosityOpacity=\"$islandLuminosity\" TintSaturation=\"$islandSaturation\" NoiseOpacity=\"$islandNoise\"/>",
-    "menuMaterial": "<DeskBlur BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintOpacity=\"$menuOpacity\" TintLuminosityOpacity=\"$menuLuminosity\" TintSaturation=\"$menuSaturation\" NoiseOpacity=\"$menuNoise\"/>"
+    "menuMaterial": "<DeskBlur BackdropSource=\"Backdrop\" BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintOpacity=\"$menuOpacity\" TintLuminosityOpacity=\"$menuLuminosity\" TintSaturation=\"$menuSaturation\" NoiseOpacity=\"$menuNoise\"/>"
   },
 
   "taskbar": {
     "common": [
+      // 应用图标和按钮一起放大；最小宽度不会截断开启标签时的按钮。
+      {
+        "target": "Taskbar.TaskListButton > Grid#IconPanel > Image#Icon, Taskbar.TaskListButton > Taskbar.TaskListLabeledButtonPanel#IconPanel > Image#Icon",
+        "styles": ["Width=$iconSize", "Height=$iconSize", "MaxWidth=$iconSize", "MaxHeight=$iconSize"]
+      },
+      {
+        "target": "Taskbar.TaskListButton > Grid#IconPanel, Taskbar.TaskListButton > Taskbar.TaskListLabeledButtonPanel#IconPanel, Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel",
+        "styles": ["MinWidth=$buttonWidth"]
+      },
+      {
+        "target": "Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel > Microsoft.UI.Xaml.Controls.AnimatedVisualPlayer#Icon, Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel > Grid > Microsoft.UI.Xaml.Controls.AnimatedVisualPlayer#Icon",
+        "styles": ["Width=$iconSize", "Height=$iconSize", "MaxWidth=$iconSize", "MaxHeight=$iconSize"]
+      },
       {
         "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundFill",
         "styles": ["Fill:=$barMaterial"]

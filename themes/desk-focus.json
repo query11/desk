@@ -1,0 +1,133 @@
+{
+  "name": "专注横栏",
+  "description": "保留完整横栏，配合清晰的磨砂菜单，适合长时间工作。",
+  "constants": {
+    "iconSize": "28",
+    "buttonWidth": "48",
+    "islandBlur": "32",
+    "islandTint": {
+      "light": "#F2F4F7",
+      "dark": "#252A32"
+    },
+    "islandOpacity": {
+      "light": "0.68",
+      "dark": "0.66"
+    },
+    "islandLuminosity": {
+      "light": "0.8",
+      "dark": "0.75"
+    },
+    "islandSaturation": "1.1",
+    "islandNoise": "0.015",
+    "barStroke": {
+      "light": "#40FFFFFF",
+      "dark": "#1AFFFFFF"
+    },
+    "monitorText": {
+      "light": "#E4000000",
+      "dark": "#FFFFFFFF"
+    },
+    "monitorSecondaryText": {
+      "light": "#8A000000",
+      "dark": "#B3FFFFFF"
+    },
+    "monitorWarning": {
+      "light": "#FFC42B1C",
+      "dark": "#FFFF99A4"
+    },
+    "menuRadius": "12",
+    "menuBlur": "32",
+    "menuTint": {
+      "light": "#F2F4F7",
+      "dark": "#252A32"
+    },
+    "menuOpacity": {
+      "light": "0.68",
+      "dark": "0.66"
+    },
+    "menuLuminosity": {
+      "light": "0.8",
+      "dark": "0.75"
+    },
+    "menuSaturation": "1.1",
+    "menuNoise": "0.015",
+    "menuStroke": {
+      "light": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#99FFFFFF\" Offset=\"0\"/><GradientStop Color=\"#33FFFFFF\" Offset=\"0.3\"/><GradientStop Color=\"#1A000000\" Offset=\"1\"/></LinearGradientBrush>",
+      "dark": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#4DFFFFFF\" Offset=\"0\"/><GradientStop Color=\"#1AFFFFFF\" Offset=\"0.3\"/><GradientStop Color=\"#0DFFFFFF\" Offset=\"1\"/></LinearGradientBrush>"
+    },
+    "barMaterial": "<DeskBlur BlurAmount=\"$islandBlur\" TintColor=\"$islandTint\" TintOpacity=\"$islandOpacity\" TintLuminosityOpacity=\"$islandLuminosity\" TintSaturation=\"$islandSaturation\" NoiseOpacity=\"$islandNoise\"/>",
+    "menuMaterial": "<DeskBlur BackdropSource=\"Backdrop\" BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintOpacity=\"$menuOpacity\" TintLuminosityOpacity=\"$menuLuminosity\" TintSaturation=\"$menuSaturation\" NoiseOpacity=\"$menuNoise\"/>"
+  },
+  "taskbar": {
+    "common": [
+      {
+        "target": "Taskbar.TaskListButton > Grid#IconPanel > Image#Icon, Taskbar.TaskListButton > Taskbar.TaskListLabeledButtonPanel#IconPanel > Image#Icon",
+        "styles": [
+          "Width=$iconSize",
+          "Height=$iconSize",
+          "MaxWidth=$iconSize",
+          "MaxHeight=$iconSize"
+        ]
+      },
+      {
+        "target": "Taskbar.TaskListButton > Grid#IconPanel, Taskbar.TaskListButton > Taskbar.TaskListLabeledButtonPanel#IconPanel, Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel",
+        "styles": [
+          "MinWidth=$buttonWidth"
+        ]
+      },
+      {
+        "target": "Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel > Microsoft.UI.Xaml.Controls.AnimatedVisualPlayer#Icon, Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel > Grid > Microsoft.UI.Xaml.Controls.AnimatedVisualPlayer#Icon",
+        "styles": [
+          "Width=$iconSize",
+          "Height=$iconSize",
+          "MaxWidth=$iconSize",
+          "MaxHeight=$iconSize"
+        ]
+      },
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundFill",
+        "styles": [
+          "Fill:=$barMaterial"
+        ]
+      },
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundStroke",
+        "styles": [
+          "Fill=$barStroke"
+        ]
+      }
+    ],
+    "floating": [],
+    "maximized": []
+  },
+  "startMenu": {
+    "common": [
+      {
+        "target": "Border#AcrylicBorder",
+        "styles": [
+          "Background:=$menuMaterial",
+          "BorderBrush:=$menuStroke",
+          "BorderThickness=1",
+          "CornerRadius=$menuRadius"
+        ]
+      },
+      {
+        "target": "Border#AcrylicOverlay, Border#LayerBorder",
+        "styles": [
+          "Visibility=Collapsed"
+        ]
+      },
+      {
+        "target": "Border#StartDropShadow, Border#RootGridDropShadow, Border#RightCompanionDropShadow",
+        "styles": [
+          "CornerRadius=$menuRadius"
+        ]
+      }
+    ]
+  },
+  "gallery": {
+    "featured": true,
+    "order": 4,
+    "tag": "整条 · 专注"
+  }
+}

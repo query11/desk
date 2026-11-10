@@ -10,6 +10,10 @@ namespace desk::effects {
 
 using AbiPropertyValue = ABI::Windows::Foundation::IPropertyValue;
 
+// Composition requires nonempty effect names to be unique within a graph.
+// Leave nodes unnamed unless a property is addressed by name (Blur / Tint).
+// Type names are not safe defaults: grain and tint both use CompositeEffect.
+
 #define DESK_EFFECT_INTEROP_METHODS                                            \
     HRESULT STDMETHODCALLTYPE GetEffectId(GUID* id) noexcept override;         \
     HRESULT STDMETHODCALLTYPE GetNamedPropertyMapping(                         \
@@ -37,7 +41,7 @@ struct GaussianBlurEffect
     D2D1_BORDER_MODE BorderMode = D2D1_BORDER_MODE_SOFT;
 
 private:
-    winrt::hstring m_name = L"GaussianBlurEffect";
+    winrt::hstring m_name;
 };
 
 struct FloodEffect : winrt::implements<FloodEffect, wge::IGraphicsEffect,
@@ -49,7 +53,7 @@ struct FloodEffect : winrt::implements<FloodEffect, wge::IGraphicsEffect,
     wfn::float4 Color{0.0f, 0.0f, 0.0f, 1.0f};
 
 private:
-    winrt::hstring m_name = L"FloodEffect";
+    winrt::hstring m_name;
 };
 
 struct CompositeEffect
@@ -62,7 +66,7 @@ struct CompositeEffect
     D2D1_COMPOSITE_MODE Mode = D2D1_COMPOSITE_MODE_SOURCE_OVER;
 
 private:
-    winrt::hstring m_name = L"CompositeEffect";
+    winrt::hstring m_name;
 };
 
 struct ColorMatrixEffect
@@ -85,7 +89,7 @@ struct ColorMatrixEffect
     bool ClampOutput = false;
 
 private:
-    winrt::hstring m_name = L"ColorMatrixEffect";
+    winrt::hstring m_name;
 };
 
 // Extends its source beyond its bounds; used to tile the noise texture.
@@ -99,7 +103,7 @@ struct BorderEffect : winrt::implements<BorderEffect, wge::IGraphicsEffect,
     D2D1_BORDER_EDGE_MODE ExtendY = D2D1_BORDER_EDGE_MODE_WRAP;
 
 private:
-    winrt::hstring m_name = L"BorderEffect";
+    winrt::hstring m_name;
 };
 
 #undef DESK_EFFECT_INTEROP_METHODS

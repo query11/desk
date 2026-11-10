@@ -22,10 +22,38 @@ internal sealed class Theme
     public required string Id { get; init; }
     public required string Name { get; init; }
     public string Description { get; init; } = "";
+    public bool Featured { get; init; }
+    public string Tag { get; init; } = "经典方案";
+    public int Order { get; init; } = 100;
     public required string FilePath { get; init; }
 
     private readonly Dictionary<string, (string Light, string Dark)> _constants = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<RuleSpec>> _sections = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Save resolved light/dark adjustments while preserving all theme rules.</summary>
+    public void SaveCopy(string path, string name, IReadOnlyDictionary<string, string> overrides)
+    {
+        name = name.Trim();
+        if (name.Length is < 1 or > 60) throw new ArgumentException("名称需要 1–60 个字符。", nameof(name));
+        var root = JsonNode.Parse(File.ReadAllText(FilePath), documentOptions: new JsonDocumentOptions
+        {
+            CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true,
+        })!.AsObject();
+        root["name"] = name;
+        root["description"] = "个人方案 · 基于 " + Name;
+        var constants = root["constants"] as JsonObject;
+        if (constants == null) root["constants"] = constants = new JsonObject();
+        foreach (string key in _constants.Keys)
+        {
+            string light = GetConstant(key, true, overrides)!;
+            string dark = GetConstant(key, false, overrides)!;
+            constants[key] = light == dark ? JsonValue.Create(light) : new JsonObject { ["light"] = light, ["dark"] = dark };
+        }
+        // A new file only: never replace an existing user theme.
+        using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
+        using var writer = new StreamWriter(file, new UTF8Encoding(false));
+        writer.Write(root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
 
     public static Theme Load(string path)
     {
@@ -41,6 +69,9 @@ internal sealed class Theme
             Id = id,
             Name = root["name"]?.GetValue<string>() ?? id,
             Description = root["description"]?.GetValue<string>() ?? "",
+            Featured = root["gallery"]?["featured"]?.GetValue<bool>() ?? false,
+            Tag = root["gallery"]?["tag"]?.GetValue<string>() ?? "经典方案",
+            Order = root["gallery"]?["order"]?.GetValue<int>() ?? 100,
             FilePath = path,
         };
 

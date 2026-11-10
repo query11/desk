@@ -1,0 +1,189 @@
+{
+  "name": "暮色蓝调",
+  "description": "克制的蓝灰色玻璃与圆角菜单，深色模式下更显沉静。",
+  "constants": {
+    "iconSize": "28",
+    "buttonWidth": "48",
+    "adaptiveLayout": "1",
+    "radius": "10",
+    "gap": "4",
+    "islandBlur": "30",
+    "islandTint": {
+      "light": "#DEEAF6",
+      "dark": "#172A42"
+    },
+    "islandOpacity": {
+      "light": "0.36",
+      "dark": "0.5"
+    },
+    "islandLuminosity": {
+      "light": "0.45",
+      "dark": "0.5"
+    },
+    "islandSaturation": "1.1",
+    "islandNoise": "0.015",
+    "islandStroke": {
+      "light": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#B3FFFFFF\" Offset=\"0\"/><GradientStop Color=\"#33FFFFFF\" Offset=\"0.5\"/><GradientStop Color=\"#1F000000\" Offset=\"1\"/></LinearGradientBrush>",
+      "dark": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#40FFFFFF\" Offset=\"0\"/><GradientStop Color=\"#14FFFFFF\" Offset=\"0.5\"/><GradientStop Color=\"#0AFFFFFF\" Offset=\"1\"/></LinearGradientBrush>"
+    },
+    "monitorText": {
+      "light": "#E4000000",
+      "dark": "#FFFFFFFF"
+    },
+    "monitorSecondaryText": {
+      "light": "#8A000000",
+      "dark": "#B3FFFFFF"
+    },
+    "monitorWarning": {
+      "light": "#FFC42B1C",
+      "dark": "#FFFF99A4"
+    },
+    "menuRadius": "18",
+    "menuBlur": "30",
+    "menuTint": {
+      "light": "#DEEAF6",
+      "dark": "#172A42"
+    },
+    "menuOpacity": {
+      "light": "0.36",
+      "dark": "0.5"
+    },
+    "menuLuminosity": {
+      "light": "0.45",
+      "dark": "0.5"
+    },
+    "menuSaturation": "1.1",
+    "menuNoise": "0.015",
+    "menuStroke": {
+      "light": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#99FFFFFF\" Offset=\"0\"/><GradientStop Color=\"#33FFFFFF\" Offset=\"0.3\"/><GradientStop Color=\"#1A000000\" Offset=\"1\"/></LinearGradientBrush>",
+      "dark": "<LinearGradientBrush StartPoint=\"0,0\" EndPoint=\"0,1\"><GradientStop Color=\"#4DFFFFFF\" Offset=\"0\"/><GradientStop Color=\"#1AFFFFFF\" Offset=\"0.3\"/><GradientStop Color=\"#0DFFFFFF\" Offset=\"1\"/></LinearGradientBrush>"
+    },
+    "islandMaterial": "<DeskBlur BlurAmount=\"$islandBlur\" TintColor=\"$islandTint\" TintOpacity=\"$islandOpacity\" TintLuminosityOpacity=\"$islandLuminosity\" TintSaturation=\"$islandSaturation\" NoiseOpacity=\"$islandNoise\"/>",
+    "menuMaterial": "<DeskBlur BackdropSource=\"Backdrop\" BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintOpacity=\"$menuOpacity\" TintLuminosityOpacity=\"$menuLuminosity\" TintSaturation=\"$menuSaturation\" NoiseOpacity=\"$menuNoise\"/>"
+  },
+  "taskbar": {
+    "common": [
+      {
+        "target": "Taskbar.TaskListButton > Grid#IconPanel > Image#Icon, Taskbar.TaskListButton > Taskbar.TaskListLabeledButtonPanel#IconPanel > Image#Icon",
+        "styles": [
+          "Width=$iconSize",
+          "Height=$iconSize",
+          "MaxWidth=$iconSize",
+          "MaxHeight=$iconSize"
+        ]
+      },
+      {
+        "target": "Taskbar.TaskListButton > Grid#IconPanel, Taskbar.TaskListButton > Taskbar.TaskListLabeledButtonPanel#IconPanel, Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel",
+        "styles": [
+          "MinWidth=$buttonWidth"
+        ]
+      },
+      {
+        "target": "Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel > Microsoft.UI.Xaml.Controls.AnimatedVisualPlayer#Icon, Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel > Grid > Microsoft.UI.Xaml.Controls.AnimatedVisualPlayer#Icon",
+        "styles": [
+          "Width=$iconSize",
+          "Height=$iconSize",
+          "MaxWidth=$iconSize",
+          "MaxHeight=$iconSize"
+        ]
+      }
+    ],
+    "floating": [
+      {
+        "target": "Taskbar.TaskbarFrame",
+        "styles": [
+          "Width=Auto",
+          "HorizontalAlignment=Center",
+          "Margin=250,0,250,0"
+        ]
+      },
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid",
+        "styles": [
+          "Padding=8,0,8,0"
+        ]
+      },
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground",
+        "styles": [
+          "Margin=-8,$gap,-8,$gap"
+        ]
+      },
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundFill",
+        "styles": [
+          "Fill:=$islandMaterial",
+          "RadiusX=$radius",
+          "RadiusY=$radius",
+          "Stroke:=$islandStroke",
+          "StrokeThickness=1"
+        ]
+      },
+      {
+        "target": "Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundStroke",
+        "styles": [
+          "Visibility=Collapsed"
+        ]
+      },
+      {
+        "target": "Taskbar.AugmentedEntryPointButton#AugmentedEntryPointButton",
+        "styles": [
+          "Visibility=Collapsed"
+        ]
+      },
+      {
+        "target": "Border#DeskMonitorIsland",
+        "styles": [
+          "Background:=$islandMaterial",
+          "BorderBrush:=$islandStroke",
+          "BorderThickness=1",
+          "CornerRadius=$radius",
+          "Margin=8,$gap,0,$gap",
+          "Padding=12,0,12,0"
+        ]
+      },
+      {
+        "target": "SystemTray.SystemTrayFrame > Grid#SystemTrayFrameGrid, SystemTray.SystemTrayFrame > StackPanel#SystemTrayFrameGrid",
+        "styles": [
+          "Background:=$islandMaterial",
+          "BorderBrush:=$islandStroke",
+          "BorderThickness=1",
+          "CornerRadius=$radius",
+          "Margin=0,$gap,8,$gap",
+          "Padding=8,0,4,0"
+        ]
+      }
+    ],
+    "maximized": []
+  },
+  "startMenu": {
+    "common": [
+      {
+        "target": "Border#AcrylicBorder",
+        "styles": [
+          "Background:=$menuMaterial",
+          "BorderBrush:=$menuStroke",
+          "BorderThickness=1",
+          "CornerRadius=$menuRadius"
+        ]
+      },
+      {
+        "target": "Border#AcrylicOverlay, Border#LayerBorder",
+        "styles": [
+          "Visibility=Collapsed"
+        ]
+      },
+      {
+        "target": "Border#StartDropShadow, Border#RootGridDropShadow, Border#RightCompanionDropShadow",
+        "styles": [
+          "CornerRadius=$menuRadius"
+        ]
+      }
+    ]
+  },
+  "gallery": {
+    "featured": true,
+    "order": 3,
+    "tag": "蓝灰 · 沉静"
+  }
+}

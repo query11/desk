@@ -11,6 +11,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 find_package(minhook CONFIG REQUIRED)
 
 add_library(DeskTap SHARED
+    src/adaptive.cpp
     src/blur.cpp
     src/clickthrough.cpp
     src/config.cpp
@@ -81,4 +82,25 @@ if(DESKTAP_BUILD_TESTS)
     endif()
     enable_testing()
     add_test(NAME DeskTapCoreTests COMMAND DeskTapCoreTests)
+
+    add_executable(DeskTapEffectsTests tests/effects_tests.cpp src/effects.cpp)
+    target_include_directories(DeskTapEffectsTests PRIVATE src)
+    target_precompile_headers(DeskTapEffectsTests PRIVATE src/pch.h)
+    target_compile_options(DeskTapEffectsTests PRIVATE /W3 /permissive- /utf-8 /EHsc /bigobj)
+    target_link_libraries(DeskTapEffectsTests PRIVATE runtimeobject ole32 oleaut32 coremessaging dxguid user32)
+    if(DEFINED _sdk_dir AND DEFINED _sdk_version)
+        target_include_directories(DeskTapEffectsTests SYSTEM PRIVATE
+            "${_sdk_dir}/Include/${_sdk_version}/cppwinrt")
+    endif()
+    add_test(NAME DeskTapEffectsTests COMMAND DeskTapEffectsTests)
+    add_executable(DeskTapConfigTests tests/config_tests.cpp src/config.cpp src/rules.cpp)
+    target_include_directories(DeskTapConfigTests PRIVATE src)
+    target_precompile_headers(DeskTapConfigTests PRIVATE src/pch.h)
+    target_compile_definitions(DeskTapConfigTests PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_compile_options(DeskTapConfigTests PRIVATE /W3 /permissive- /utf-8 /EHsc /bigobj)
+    target_link_libraries(DeskTapConfigTests PRIVATE runtimeobject ole32 user32)
+    if(DEFINED _sdk_dir AND DEFINED _sdk_version)
+        target_include_directories(DeskTapConfigTests SYSTEM PRIVATE "${_sdk_dir}/Include/${_sdk_version}/cppwinrt")
+    endif()
+    add_test(NAME DeskTapConfigTests COMMAND DeskTapConfigTests)
 endif()

@@ -52,6 +52,10 @@ internal sealed class Settings
 
     public bool ClickThrough { get; set; }
 
+    public HashSet<string> FavoriteThemes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public ThemeTrial? PendingThemeTrial { get; set; }
+    public Dictionary<string, DisplayPreferences> Displays { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// Theme constants changed in the settings window, per theme id (the
     /// file name without extension; a user theme with the name of a built-in
@@ -206,6 +210,10 @@ internal sealed class Settings
             }
         }
         settings.ThemeOverrides = themes;
+        settings.FavoriteThemes = new HashSet<string>(settings.FavoriteThemes ?? [], StringComparer.OrdinalIgnoreCase);
+        settings.Displays = new Dictionary<string, DisplayPreferences>(settings.Displays ?? [], StringComparer.OrdinalIgnoreCase);
+        foreach (var profile in settings.Displays.Values)
+            profile.ThemeOverrides = new Dictionary<string, Dictionary<string, string>>(profile.ThemeOverrides ?? [], StringComparer.OrdinalIgnoreCase);
         if (settings.MigrateLegacyOverrides())
         {
             settings.Save(path);

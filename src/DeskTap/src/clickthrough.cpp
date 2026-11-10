@@ -5,6 +5,7 @@
 #include "clickthrough.h"
 #include "core/clickthrough_gate.h"
 #include "log.h"
+#include "engine.h"
 #include "status.h"
 #include "winutil.h"
 
@@ -545,7 +546,13 @@ void OnIslandRoot(wf::IInspectable const& inspectable) {
         return !island.source.get() || island.hwnd == hwnd;
     });
     t_islands.push_back({winrt::make_weak(source), hwnd});
+    // Diagnostics can report the source after its children. Retry routing once
+    // their native host becomes known; don't wait for a user configuration edit.
+    if (auto queue = DispatcherQueue::GetForCurrentThread())
+        queue.TryEnqueue(DispatcherQueuePriority::Low, [] { engine::RefreshDisplayRoutes(); });
 }
+
+HWND WindowForRoot(wux::XamlRoot const& root) { return ResolveIslandHwnd(root); }
 
 void OnElementAdded(wux::FrameworkElement const& element, bool configured) {
     auto className = winrt::get_class_name(element);

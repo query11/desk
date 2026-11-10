@@ -206,8 +206,16 @@ function Set-Size($window, [int]$width, [int]$height) {
     Start-Sleep -Milliseconds 800
 }
 
-$pages = @('概览', '任务栏', '开始菜单', '设置')
-$navIds = @('NavHome', 'NavTaskbar', 'NavStartMenu', 'NavSettings')
+$pages = @('概览', '任务栏', '开始菜单', '设置', '外观方案', '显示器')
+$navIds = @('NavHome', 'NavTaskbar', 'NavStartMenu', 'NavSettings', 'NavAppearance', 'NavDisplays')
+$headings = @{
+    '概览' = '桌面，刚刚好'
+    '任务栏' = '让常用应用，恰到好处'
+    '开始菜单' = '每一次打开，都清爽'
+    '设置' = '按你的习惯运行'
+    '外观方案' = '给桌面换一种气质'
+    '显示器' = '每一块屏幕，都合适'
+}
 
 function Open-Page($window, [int]$index) {
     $item = Find-Id $window $navIds[$index]
@@ -217,8 +225,9 @@ function Open-Page($window, [int]$index) {
     return Assert-Title $window $pages[$index]
 }
 
-# The pinned page title shows the page that is open.
+# Check the visible page heading, independently of the smaller breadcrumb.
 function Assert-Title($window, [string]$expected) {
+    $expected = $headings[$expected]
     $left = $window.Current.BoundingRectangle.Left + 40
     # Built here: GetNewClosure only captures the variables of the scope it runs in.
     $isTitle = { param($c) $c.Name -eq $expected -and $c.BoundingRectangle.Height -ge 30 -and
@@ -264,6 +273,12 @@ Visit-Pages $window 'light-wide' $true
 
 # Feedback and confirmations on the overview.
 Open-Page $window 0 | Out-Null
+$maintenance = Find-Id $window 'MaintenanceExpander'
+[object]$expand = $null
+if ($maintenance -and $maintenance.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expand)) {
+    $expand.Expand()
+    Start-Sleep -Milliseconds 300
+} else { Fail 'Maintenance expander not found' }
 Click (Find-Id $window 'ReapplyButton') 'ReapplyButton' | Out-Null
 if (-not (Wait-Until { Find-Name $window '已重新应用' } 5)) { Fail 'no toast after 重新应用' }
 Start-Sleep -Milliseconds 400

@@ -6,6 +6,8 @@
     xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
     Title="开始菜单">
     <StackPanel Style="{StaticResource Desk.Page}">
+        <TextBlock Style="{StaticResource Desk.PageTitle}" Text="每一次打开，都清爽" />
+        <TextBlock Style="{StaticResource Desk.Lead}" Text="让开始菜单与任务栏保持同一种质感，平衡背景通透感与文字清晰度。" />
 
         <ui:CardControl>
             <ui:CardControl.Icon>
@@ -21,7 +23,7 @@
                 <ui:SymbolIcon Symbol="DarkTheme24" />
             </ui:CardControl.Icon>
             <ui:CardControl.Header>
-                <local:CardHeader Title="配色" Description="「深色玻璃」是白色文字、透出壁纸颜色的深色毛玻璃（参考图那样的效果），系统是浅色模式时也能用；「浅色玻璃」是黑色文字。" />
+                <local:CardHeader Title="配色" Description="深色搭配白色文字，浅色搭配黑色文字；也可跟随系统。" />
             </ui:CardControl.Header>
             <ComboBox x:Name="SchemeBox" MinWidth="200">
                 <ComboBoxItem Content="跟随 Windows 模式" />

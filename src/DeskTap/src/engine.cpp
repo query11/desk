@@ -8,6 +8,7 @@
 // GPL-3.0).
 #include "pch.h"
 #include "engine.h"
+#include "adaptive.h"
 #include "blur.h"
 #include "clickthrough.h"
 #include "config.h"
@@ -327,7 +328,11 @@ Desired ComputeDesired(Cache& cache,
                        std::wstring_view diagnosticsType,
                        const Config& config) {
     Desired desired;
-    for (const auto& rule : config.rules) {
+    auto display = config::ForElement(config, element);
+    const auto& rules = display ? display->rules : config.rules;
+    if (diagnosticsType == L"Taskbar.TaskbarFrame")
+        DLOG(L"Display route: %s, %zu rules", display ? display->device.c_str() : L"global", rules.size());
+    for (const auto& rule : rules) {
         bool matched = false;
         try {
             matched =
@@ -618,8 +623,16 @@ void Evaluate(ThreadState& state,
     auto cache = CacheFor(state, config);
 
     Desired desired;
+    std::vector<ResolvedStyle> layout;
     if (config.enabled) {
         desired = ComputeDesired(*cache, element, tracked.diagnosticsType, config);
+        if (paths::IsExplorer()) {
+            layout = adaptive::Styles(handle);
+            for (auto const& style : layout) {
+                std::erase_if(desired, [&](auto existing) { return existing->property == style.property; });
+                desired.push_back(&style);
+            }
+        }
     }
     if (desired.empty() && tracked.properties.empty()) {
         return;
@@ -628,6 +641,7 @@ void Evaluate(ThreadState& state,
 }
 
 void RemoveTracked(ThreadState& state, InstanceHandle handle) {
+    if (paths::IsExplorer()) adaptive::OnElementRemoved(handle);
     auto it = state.elements.find(handle);
     if (it == state.elements.end()) {
         return;
@@ -772,6 +786,7 @@ void ScheduleReport(ThreadState& state) {
 void OnThreadShutdown() {
     DWORD id = GetCurrentThreadId();
     if (paths::IsExplorer()) {
+        adaptive::OnThreadShutdown();
         monitor::OnThreadShutdown();
         clickthrough::OnThreadShutdown();
     }
@@ -799,6 +814,7 @@ void ReapplyAll() {
     if (state.appliedRevision != config->revision) {
         state.errors = 0;
     }
+    if (paths::IsExplorer()) adaptive::OnConfigApplied();
 
     std::vector<InstanceHandle> handles;
     handles.reserve(state.elements.size());
@@ -886,6 +902,7 @@ void OnElementAdded(InstanceHandle handle,
         }
         clickthrough::OnElementAdded(element,
                                      config->enabled && config->clickThrough);
+        adaptive::OnElementAdded(handle, element);
     }
 
     if (paths::IsStartMenu() && state.themeRevision != config->revision) {
@@ -923,6 +940,27 @@ void OnElementRemoved(InstanceHandle handle) {
 
 void OnConfigChanged() {
     RunOnUiThreads([] { ReapplyAll(); });
+}
+
+void RefreshDisplayRoutes() {
+    if (!t_state) return;
+    for (auto& [handle, element] : t_state->elements) element.revision = UINT64_MAX;
+    ReapplyAll();
+}
+
+void RefreshLayout(const std::vector<InstanceHandle>& handles) {
+    if (!t_state) return;
+    auto config = config::Current();
+    for (auto handle : handles) {
+        auto it = t_state->elements.find(handle);
+        if (it == t_state->elements.end()) continue;
+        if (auto element = it->second.element.get()) {
+            try { Evaluate(*t_state, handle, it->second, element, *config, false); }
+            catch (...) { t_state->errors++; }
+        }
+    }
+    FlushPendingRemovals(*t_state);
+    ScheduleReport(*t_state);
 }
 
 void RunOnUiThreads(std::function<void()> callback) {

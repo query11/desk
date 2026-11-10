@@ -32,6 +32,10 @@ jobs:
         run: |
           & build/DeskTap/Release/DeskTapCoreTests.exe
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & build/DeskTap/Release/DeskTapEffectsTests.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & build/DeskTap/Release/DeskTapConfigTests.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Set up .NET
         if: hashFiles('src/Desk/Desk.csproj') != ''
@@ -45,6 +49,19 @@ jobs:
         run: |
           dotnet test tests/Desk.Tests -c Release --logger "console;verbosity=normal" 2>&1 | Tee-Object -FilePath build/desk-tests.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Test appearance controls in isolation
+        shell: pwsh
+        run: |
+          dotnet run --project tests/Desk.Ui.Tests -c Release -- build/ui-appearance
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Upload appearance previews
+        if: always() && hashFiles('build/ui-appearance/*.png') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-appearance-${{ github.sha }}
+          path: build/ui-appearance
 
       - name: Build Desk.exe
         if: hashFiles('src/Desk/Desk.csproj') != ''
@@ -63,6 +80,7 @@ jobs:
           Copy-Item build/DeskTap/Release/DeskTap.dll dist/Desk/
           if (Test-Path themes) { Copy-Item -Recurse -Force themes dist/Desk/themes }
           Copy-Item LICENSE dist/Desk/LICENSE.txt
+          Copy-Item docs/THEME-MANAGEMENT.md dist/Desk/使用指南.md
           Get-ChildItem dist/Desk -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
 
       - name: Upload

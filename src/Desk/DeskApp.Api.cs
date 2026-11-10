@@ -6,16 +6,10 @@ namespace Desk;
 
 internal sealed record ThemeInfo(string Id, string Name, string Description, bool IsUserTheme);
 
-/// <summary>Which part a theme parameter belongs to; decides its light/dark variant.</summary>
-internal enum ParameterScope
-{
-    Taskbar,
-    StartMenu,
-}
-
 /// <summary>What the settings window reads and changes. Used on the UI thread only.</summary>
-internal sealed partial class DeskApp
+internal sealed partial class DeskApp : IAppearanceEditor, IThemeLibrary
 {
+    private readonly AppearanceHistory _appearanceHistory = new();
     public static string Version { get; } =
         typeof(DeskApp).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion.Split('+')[0] ?? "0.0.0";
@@ -47,15 +41,16 @@ internal sealed partial class DeskApp
         get => _theme?.Id ?? _settings.Theme;
         set
         {
-            if (string.Equals(value, ThemeId, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(value, ThemeId, StringComparison.OrdinalIgnoreCase) && _themeTrial.Pending == null)
             {
                 return;
             }
-            _settings.Theme = value;
-            _settings.Save();
-            LoadTheme();
-            Apply();
-            StateChanged?.Invoke();
+            // Validate before changing the active id or saving. A bad user file must
+            // leave the last working theme in place and report failure to the gallery.
+            string path = ThemeFiles().FirstOrDefault(f => string.Equals(Path.GetFileNameWithoutExtension(f), value,
+                StringComparison.OrdinalIgnoreCase)) ?? throw new FileNotFoundException("该方案已被移走，请刷新方案列表。");
+            _ = Theme.Load(path);
+            _themeTrial.Select(value);
         }
     }
 
@@ -219,6 +214,49 @@ internal sealed partial class DeskApp
         return themes;
     }
 
+    public IReadOnlyList<ThemeOption> GetAppearanceOptions() => _library.List();
+
+    public event Action? TrialChanged;
+    public ThemeTrial? PendingTrial => _themeTrial.Pending;
+    public int TrialSecondsLeft => _themeTrial.SecondsLeft;
+    public void StartThemeTrial(string id)
+    {
+        if (!Enabled) throw new InvalidOperationException("请先在概览中启用美化，再试用方案。");
+        _ = Theme.Load(_library.Find(id)); _themeTrial.Begin(id);
+    }
+    public void KeepThemeTrial() => _themeTrial.Keep();
+    public void CancelThemeTrial() => _themeTrial.Cancel();
+    public void ToggleFavorite(string id) { _library.Favorite(id); StateChanged?.Invoke(); }
+    public string DuplicateTheme(string id, string name)
+    {
+        string created = _library.Duplicate(id, name); StateChanged?.Invoke(); return created;
+    }
+    public void RenameTheme(string id, string name)
+    {
+        _library.Rename(id, name); if (id == ThemeId) LoadTheme(); StateChanged?.Invoke();
+    }
+    public void DeleteTheme(string id)
+    {
+        var option = GetAppearanceOptions().Single(t => t.Id == id);
+        if (!option.IsUserTheme) throw new InvalidOperationException("不能删除内置方案。");
+        if (PendingTrial is { } trial && (trial.OriginalTheme == id || trial.TrialTheme == id)) CancelThemeTrial();
+        if (ThemeId == id) ThemeId = DefaultTheme;
+        _library.Delete(id); StateChanged?.Invoke();
+    }
+    public string ImportTheme(string path) { string id = _library.Import(path); StateChanged?.Invoke(); return id; }
+    public void ExportTheme(string id, string path) => _library.Export(id, path);
+    public IReadOnlyList<ThemeAdjustment> GetThemeAdjustments(string id) => _library.Adjustments(id);
+    public void ResetThemeAdjustment(string id, string key)
+    {
+        var before = new Dictionary<string, string>(_settings.OverridesFor(id));
+        if (!_settings.ThemeOverrides.TryGetValue(id, out var values) || !values.Remove(key)) return;
+        if (!_settings.Save()) { values[key] = before[key]; throw new IOException("修改没有保存成功。"); }
+        var scope = key.StartsWith("menu", StringComparison.Ordinal) ? ParameterScope.StartMenu : ParameterScope.Taskbar;
+        _appearanceHistory.Record(id, scope, before, values, null, DateTime.UtcNow);
+        if (id == ThemeId) Apply();
+        StateChanged?.Invoke();
+    }
+
     // ------------------------------------------------------------ parameters
 
     public bool HasParameter(string name) => _theme?.HasConstant(name) == true;
@@ -251,7 +289,10 @@ internal sealed partial class DeskApp
             return;
         }
         string text = value.ToString("0.###", CultureInfo.InvariantCulture);
+        var before = new Dictionary<string, string>(Overrides);
         _settings.SetOverride(_theme.Id, name, text, perMode ? IsLight(scope) : null);
+        _appearanceHistory.Record(_theme.Id, scope, before, Overrides,
+            name + "|" + IsLight(scope), DateTime.UtcNow);
         ApplySoon();
     }
 
@@ -259,19 +300,56 @@ internal sealed partial class DeskApp
         _theme != null && _settings.HasOverrides(_theme.Id, names);
 
     /// <summary>Goes back to the theme's own values for these constants, in this theme only.</summary>
-    public void ResetParameters(IEnumerable<string> names)
+    public void ResetParameters(ParameterScope scope, IEnumerable<string> names)
     {
         if (_theme == null)
         {
             return;
         }
+        var before = new Dictionary<string, string>(Overrides);
         _settings.ResetOverrides(_theme.Id, names);
+        _appearanceHistory.Record(_theme.Id, scope, before, Overrides, null, DateTime.UtcNow);
         _settings.Save();
         Apply();
         StateChanged?.Invoke();
     }
 
     private bool IsLight(ParameterScope scope) => scope == ParameterScope.StartMenu ? StartMenuLight : _lightMode;
+
+    public bool CanUndoAppearance(ParameterScope scope) => _appearanceHistory.CanUndo(ThemeId, scope);
+
+    public void UndoAppearance(ParameterScope scope)
+    {
+        if (!_appearanceHistory.Undo(_settings, ThemeId, scope, _settings.Save)) return;
+        Apply();
+        StateChanged?.Invoke();
+    }
+
+    public void ApplyMaterialPreset(ParameterScope scope, MaterialPreset preset)
+    {
+        if (_theme == null) return;
+        var before = new Dictionary<string, string>(Overrides);
+        foreach (var (key, value) in preset.Values(scope, IsLight(scope)))
+        {
+            var parts = key.Split('@');
+            if (!_theme.HasConstant(parts[0])) continue;
+            _settings.SetOverride(_theme.Id, parts[0], value, parts.Length > 1 ? IsLight(scope) : null);
+        }
+        _appearanceHistory.Record(_theme.Id, scope, before, Overrides, null, DateTime.UtcNow);
+        _settings.Save();
+        Apply();
+        StateChanged?.Invoke();
+    }
+
+    public string SaveAppearance(string name)
+    {
+        if (_theme == null) throw new InvalidOperationException("没有可保存的主题");
+        Directory.CreateDirectory(Paths.UserThemesDir);
+        string path = Path.Combine(Paths.UserThemesDir, "my-look-" + Guid.NewGuid().ToString("N")[..12] + ".json");
+        _theme.SaveCopy(path, name, Overrides);
+        StateChanged?.Invoke();
+        return path;
+    }
 
     // --------------------------------------------------------------- actions
 

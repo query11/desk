@@ -21,6 +21,8 @@ bool UpdateEffective(bool hostLost);
 
 // The configuration to apply; never null.
 std::shared_ptr<const Config> Current();
+// UI thread only. Unknown/unattached roots use the global rules.
+const DisplayConfig* ForElement(const Config& config, wux::FrameworkElement const& element);
 
 // The heartbeat Desk.exe writes to <runtime>\host.json.
 struct Heartbeat {

@@ -15,6 +15,10 @@ void OnTaskbarFrameAdded(wux::FrameworkElement const& frame);
 // and starts or stops sampling what they show.
 void OnConfigApplied(const Config& config);
 
+// Widths in logical pixels, independent of the current compact state.
+std::pair<double, double> LayoutWidths(wux::FrameworkElement const& frame);
+void SetCompactLevel(wux::FrameworkElement const& frame, int level);
+
 // The thread's dispatcher is shutting down: removes its islands and stops
 // its sampling while XAML is still usable.
 void OnThreadShutdown();

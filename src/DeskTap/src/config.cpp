@@ -2,6 +2,7 @@
 #include "config.h"
 #include "log.h"
 #include "paths.h"
+#include "clickthrough.h"
 
 namespace desk::config {
 namespace {
@@ -133,6 +134,12 @@ std::shared_ptr<Config> Parse(const std::wstring& text) {
         static_cast<uint64_t>(root.GetNamedNumber(L"serial", 0));
     config->enabled = root.GetNamedBoolean(L"enabled", false);
     config->clickThrough = root.GetNamedBoolean(L"clickThrough", false);
+    if (root.HasKey(L"layout") && root.GetNamedValue(L"layout").ValueType() == JsonValueType::Object) {
+        auto layout = root.GetNamedObject(L"layout");
+        config->adaptiveLayout = layout.GetNamedBoolean(L"adaptive", false);
+        config->buttonWidth = std::clamp(layout.GetNamedNumber(L"buttonWidth", 48), 40.0, 80.0);
+        config->iconSize = std::clamp(layout.GetNamedNumber(L"iconSize", 28), 16.0, 48.0);
+    }
     config->recover = static_cast<uint64_t>(root.GetNamedNumber(L"recover", 0));
 
     if (root.HasKey(L"host") &&
@@ -155,6 +162,25 @@ std::shared_ptr<Config> Parse(const std::wstring& text) {
         config->monitor = ParseMonitor(root.GetNamedObject(L"monitor"));
     }
 
+    if (root.HasKey(L"displays") && root.GetNamedValue(L"displays").ValueType() == JsonValueType::Array) {
+        size_t nextRuleId = config->rules.size();
+        for (auto const& value : root.GetNamedArray(L"displays")) {
+            if (value.ValueType() != JsonValueType::Object) continue;
+            auto object = value.GetObject();
+            DisplayConfig display;
+            display.device = object.GetNamedString(L"device", L"");
+            if (display.device.empty()) continue;
+            display.rules = ParseRules(object.GetNamedArray(L"rules"));
+            // All scopes share a cache on each XAML thread; rule ids must be unique.
+            for (auto& rule : display.rules) rule.id = nextRuleId++;
+            display.monitor = ParseMonitor(object.GetNamedObject(L"monitor"));
+            auto layout = object.GetNamedObject(L"layout");
+            display.adaptiveLayout = layout.GetNamedBoolean(L"adaptive", false);
+            display.buttonWidth = std::clamp(layout.GetNamedNumber(L"buttonWidth", 48), 40.0, 80.0);
+            display.iconSize = std::clamp(layout.GetNamedNumber(L"iconSize", 28), 16.0, 48.0);
+            config->displays.push_back(std::move(display));
+        }
+    }
     auto theme = root.GetNamedString(L"requestedTheme", L"");
     if (theme == L"Dark") {
         config->requestedTheme = wux::ElementTheme::Dark;
@@ -220,6 +246,21 @@ bool ReloadIfChangedCore() {
 void Init() {
     g_path = paths::RuntimeDir() + L"\\" + paths::ProcessName() + L".json";
     DLOG(L"Config path: %s", g_path.c_str());
+}
+
+const DisplayConfig* ForElement(const Config& config, wux::FrameworkElement const& element) {
+    if (config.displays.empty() || !element) return nullptr;
+    try {
+        auto root = element.XamlRoot();
+        HWND window = root ? clickthrough::WindowForRoot(root) : nullptr;
+        if (!window || !IsWindow(window)) return nullptr;
+        MONITORINFOEXW info{};
+        info.cbSize = sizeof(info);
+        if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &info)) return nullptr;
+        for (const auto& display : config.displays)
+            if (_wcsicmp(display.device.c_str(), info.szDevice) == 0) return &display;
+    } catch (...) {}
+    return nullptr;
 }
 
 bool ReloadIfChanged() {

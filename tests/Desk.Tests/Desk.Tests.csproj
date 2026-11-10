@@ -18,6 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\src\Desk\Appearance.cs" Link="Production\Appearance.cs" />
     <Compile Include="..\..\src\Desk\AutoHideController.cs" Link="Production\AutoHideController.cs" />
     <Compile Include="..\..\src\Desk\Autostart.cs" Link="Production\Autostart.cs" />
     <Compile Include="..\..\src\Desk\WindowsAutostartBackend.cs" Link="Production\WindowsAutostartBackend.cs" />
@@ -34,6 +35,11 @@
     <Compile Include="..\..\src\Desk\TargetManager.cs" Link="Production\TargetManager.cs" />
     <Compile Include="..\..\src\Desk\TargetPlatform.cs" Link="Production\TargetPlatform.cs" />
     <Compile Include="..\..\src\Desk\Theme.cs" Link="Production\Theme.cs" />
+    <Compile Include="..\..\src\Desk\ThemeOption.cs" Link="Production\ThemeOption.cs" />
+    <Compile Include="..\..\src\Desk\ThemeTrial.cs" Link="Production\ThemeTrial.cs" />
+    <Compile Include="..\..\src\Desk\ThemeLibraryStore.cs" Link="Production\ThemeLibraryStore.cs" />
+    <Compile Include="..\..\src\Desk\DisplayPreferences.cs" Link="Production\DisplayPreferences.cs" />
+    <Compile Include="..\..\src\Desk\DisplayRuntimePlanner.cs" Link="Production\DisplayRuntimePlanner.cs" />
   </ItemGroup>
 
   <ItemGroup>

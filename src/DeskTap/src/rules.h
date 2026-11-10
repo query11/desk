@@ -44,6 +44,15 @@ struct MonitorConfig {
     winrt::Windows::UI::Color warning{0xFF, 0xFF, 0x99, 0xA4};
 };
 
+struct DisplayConfig {
+    std::wstring device;
+    std::vector<Rule> rules;
+    MonitorConfig monitor;
+    bool adaptiveLayout = false;
+    double buttonWidth = 48;
+    double iconSize = 28;
+};
+
 struct Config {
     // Given by Desk.exe, reported back once applied.
     uint64_t serial = 0;
@@ -60,7 +69,11 @@ struct Config {
     uint64_t recover = 0;
     bool clickThrough = false;
     std::vector<Rule> rules;
+    std::vector<DisplayConfig> displays;
     MonitorConfig monitor;
+    bool adaptiveLayout = false;
+    double buttonWidth = 48;
+    double iconSize = 28;
     // Light or dark for the whole window content, whatever the Windows mode
     // (the Start menu's color scheme). Unset leaves the system's choice.
     std::optional<wux::ElementTheme> requestedTheme;

@@ -66,6 +66,11 @@ internal static class UiHost
     public static Task<bool> ConfirmAsync(string title, string message, string confirm, bool dangerous = false) =>
         _window?.ConfirmAsync(title, message, confirm, dangerous) ?? Task.FromResult(false);
 
+    public static Task<string?> PromptNameAsync(string title, string message, string initial) =>
+        _window?.PromptNameAsync(title, message, initial) ?? Task.FromResult<string?>(null);
+
+    public static Task ShowContentAsync(string title, object content) => _window?.ShowContentAsync(title, content) ?? Task.CompletedTask;
+
     private static void EnsureApplication()
     {
         if (System.Windows.Application.Current != null)

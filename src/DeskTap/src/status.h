@@ -39,6 +39,11 @@ void ReportThread(DWORD threadId, const core::ThreadReport& report);
 // The UI thread is shutting down.
 void ForgetThread(DWORD threadId);
 
+// Live fallback brushes, not a cumulative error counter. S_OK means Windows
+// requested reduced effects; a failed HRESULT means rendering failed.
+void SetBlurFallback(const void* brush, HRESULT reason);
+void ClearBlurFallback(const void* brush);
+
 // Writes the file if something changed (counters alone at most every 15 s).
 // Called from the control thread.
 void Flush(bool force = false);

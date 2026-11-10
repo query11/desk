@@ -15,6 +15,9 @@ internal sealed record MonitorConfig(
     string SecondaryTextColor,
     string WarningColor);
 
+internal sealed record TaskbarLayoutConfig(bool Adaptive, double ButtonWidth, double IconSize);
+internal sealed record DisplayRuntimeConfig(string Device, IReadOnlyList<RuleSpec> Rules, MonitorConfig Monitor, TaskbarLayoutConfig Layout);
+
 /// <summary>
 /// Writes runtime\&lt;process&gt;.json, which DeskTap.dll watches. Files are
 /// replaced atomically and only rewritten when their content changes.
@@ -62,7 +65,8 @@ internal sealed class RuntimeWriter
     /// <param name="requestedTheme">"Light" or "Dark" to force the theme of the window content.</param>
     /// <returns>False when the file couldn't be written.</returns>
     public bool Write(string process, bool enabled, bool clickThrough, IReadOnlyList<RuleSpec> rules,
-        MonitorConfig? monitor = null, string? requestedTheme = null)
+        MonitorConfig? monitor = null, string? requestedTheme = null, TaskbarLayoutConfig? layout = null,
+        IReadOnlyList<DisplayRuntimeConfig>? displays = null)
     {
         var rulesArray = new JsonArray();
         foreach (var rule in rules)
@@ -109,7 +113,35 @@ internal sealed class RuntimeWriter
         {
             payload["requestedTheme"] = requestedTheme;
         }
+        if (layout != null)
+        {
+            payload["layout"] = new JsonObject
+            {
+                ["adaptive"] = layout.Adaptive,
+                ["buttonWidth"] = layout.ButtonWidth,
+                ["iconSize"] = layout.IconSize,
+            };
+        }
 
+        if (displays is { Count: > 0 })
+        {
+            var profiles = new JsonArray();
+            foreach (var display in displays)
+            {
+                var profileRules = new JsonArray();
+                foreach (var rule in display.Rules)
+                    profileRules.Add(new JsonObject { ["target"] = rule.Target, ["styles"] = new JsonArray(rule.Styles.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()) });
+                var m = display.Monitor;
+                profiles.Add(new JsonObject
+                {
+                    ["device"] = display.Device, ["rules"] = profileRules,
+                    ["monitor"] = new JsonObject { ["enabled"] = m.Enabled, ["network"] = m.Network, ["cpu"] = m.Cpu, ["memory"] = m.Memory,
+                        ["cpuLabel"] = m.CpuLabel, ["memoryLabel"] = m.MemoryLabel, ["text"] = m.TextColor, ["secondaryText"] = m.SecondaryTextColor, ["warning"] = m.WarningColor },
+                    ["layout"] = new JsonObject { ["adaptive"] = display.Layout.Adaptive, ["buttonWidth"] = display.Layout.ButtonWidth, ["iconSize"] = display.Layout.IconSize },
+                });
+            }
+            payload["displays"] = profiles;
+        }
         string content = payload.ToJsonString();
         if (_lastContent.TryGetValue(process, out var last) && last == content)
         {

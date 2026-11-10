@@ -128,7 +128,11 @@ HRESULT FloodEffect::GetNamedPropertyMapping(
         return E_INVALIDARG;
     }
     if (std::wstring_view(name) == L"Color") {
-        return Direct(D2D1_FLOOD_PROP_COLOR, index, mapping);
+        // Composition exposes colors as Color properties, while Direct2D
+        // stores a normalized RGBA vector. Keep animation and storage aligned.
+        *index = D2D1_FLOOD_PROP_COLOR;
+        *mapping = awge::GRAPHICS_EFFECT_PROPERTY_MAPPING_COLOR_TO_VECTOR4;
+        return S_OK;
     }
     return E_INVALIDARG;
 }

@@ -12,6 +12,9 @@
   "description": "和「Desk 浮岛」相同的布局，着色更淡、更通透，壁纸的颜色更鲜艳。",
 
   "constants": {
+    "iconSize": "28",
+    "buttonWidth": "48",
+    "adaptiveLayout": "1",
     // ---- 任务栏浮岛 ----
     // 圆角，以及岛与任务栏上下边缘的距离（单位：像素，按 100% 缩放计）
     "radius": "10",
@@ -55,12 +58,26 @@
     },
 
     "islandMaterial": "<DeskBlur BlurAmount=\"$islandBlur\" TintColor=\"$islandTint\" TintOpacity=\"$islandOpacity\" TintLuminosityOpacity=\"$islandLuminosity\" TintSaturation=\"$islandSaturation\" NoiseOpacity=\"$islandNoise\"/>",
-    "menuMaterial": "<DeskBlur BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintOpacity=\"$menuOpacity\" TintLuminosityOpacity=\"$menuLuminosity\" TintSaturation=\"$menuSaturation\" NoiseOpacity=\"$menuNoise\"/>"
+    "menuMaterial": "<DeskBlur BackdropSource=\"Backdrop\" BlurAmount=\"$menuBlur\" TintColor=\"$menuTint\" TintOpacity=\"$menuOpacity\" TintLuminosityOpacity=\"$menuLuminosity\" TintSaturation=\"$menuSaturation\" NoiseOpacity=\"$menuNoise\"/>"
   },
 
   "taskbar": {
     // 任何时候都生效的规则
-    "common": [],
+    "common": [
+      // 应用图标和按钮一起放大；最小宽度不会截断开启标签时的按钮。
+      {
+        "target": "Taskbar.TaskListButton > Grid#IconPanel > Image#Icon, Taskbar.TaskListButton > Taskbar.TaskListLabeledButtonPanel#IconPanel > Image#Icon",
+        "styles": ["Width=$iconSize", "Height=$iconSize", "MaxWidth=$iconSize", "MaxHeight=$iconSize"]
+      },
+      {
+        "target": "Taskbar.TaskListButton > Grid#IconPanel, Taskbar.TaskListButton > Taskbar.TaskListLabeledButtonPanel#IconPanel, Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel",
+        "styles": ["MinWidth=$buttonWidth"]
+      },
+      {
+        "target": "Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel > Microsoft.UI.Xaml.Controls.AnimatedVisualPlayer#Icon, Taskbar.ExperienceToggleButton#LaunchListButton > Taskbar.TaskListButtonPanel > Grid > Microsoft.UI.Xaml.Controls.AnimatedVisualPlayer#Icon",
+        "styles": ["Width=$iconSize", "Height=$iconSize", "MaxWidth=$iconSize", "MaxHeight=$iconSize"]
+      }
+    ],
 
     // 平时：浮岛
     "floating": [

@@ -9,20 +9,16 @@ public partial class HomePage : Page
 {
     private readonly DeskApp _app = UiHost.App;
     private bool _updating;
+    private readonly DesktopPreview _preview = new() { Height = 235 };
 
     public HomePage()
     {
         InitializeComponent();
+        DesktopPreviewHost.Content = _preview;
 
         EnabledSwitch.Checked += (_, _) => SetEnabled(true);
         EnabledSwitch.Unchecked += (_, _) => SetEnabled(false);
-        ThemeBox.SelectionChanged += (_, _) =>
-        {
-            if (!_updating && ThemeBox.SelectedItem is ThemeInfo theme)
-            {
-                _app.ThemeId = theme.Id;
-            }
-        };
+        BrowseThemesButton.Click += (_, _) => UiHost.Navigate(typeof(AppearancePage));
         TaskbarTile.Click += (_, _) => UiHost.Navigate(typeof(TaskbarPage));
         StartMenuTile.Click += (_, _) => UiHost.Navigate(typeof(StartMenuPage));
         ReapplyButton.Click += (_, _) =>
@@ -39,11 +35,13 @@ public partial class HomePage : Page
             }
         };
 
-        Loaded += (_, _) =>
+        Loaded += async (_, _) =>
         {
             _app.StateChanged += Refresh;
             _app.StatusChanged += RefreshStatus;
             Refresh();
+            var wallpaper = await WallpaperPreview.LoadAsync();
+            await Dispatcher.InvokeAsync(() => { _preview.Wallpaper = wallpaper.Image; _preview.InvalidateVisual(); });
         };
         Unloaded += (_, _) =>
         {
@@ -67,14 +65,9 @@ public partial class HomePage : Page
         {
             EnabledSwitch.IsChecked = _app.Enabled;
 
-            var themes = _app.GetThemes();
-            ThemeBox.ItemsSource = themes;
-            ThemeBox.IsEnabled = themes.Count > 0;
-            ThemeBox.SelectedItem = themes.FirstOrDefault(t =>
-                string.Equals(t.Id, _app.ThemeId, StringComparison.OrdinalIgnoreCase));
-            ThemeHeader.Description = themes.Count == 0
-                ? "没有找到主题文件。请确认 Desk.exe 旁边有 themes 文件夹，或者在「设置 → 主题文件夹」里放一个主题。"
-                : _app.ThemeDescription;
+            CurrentThemeName.Text = string.IsNullOrWhiteSpace(_app.ThemeName) ? "尚未选择方案" : _app.ThemeName;
+            _preview.Update(_app.GetAppearanceOptions().FirstOrDefault(t => t.Id == _app.ThemeId),
+                _app.SystemLightMode, _app.StartMenuLightMode);
 
             EngineErrorInfo.Message = _app.EngineError ?? "";
             EngineErrorInfo.IsOpen = _app.EngineError != null;
@@ -94,8 +87,8 @@ public partial class HomePage : Page
     private void RefreshStatus()
     {
         SummaryText.Text = _app.Enabled
-            ? "任务栏和开始菜单正在使用 Desk 的样式。关闭开关会立即恢复系统原样。"
-            : "美化已停用，任务栏和开始菜单是系统原样。";
+            ? "已启用 · 各部分的实际生效情况见下方状态。"
+            : "已停用 · 打开开关即可恢复这套外观。";
 
         var taskbar = ShowStatus(TaskbarStatusText, TaskbarStatusIcon, TaskbarStatusRing, _app.Taskbar,
             "任务栏", "资源管理器");
@@ -144,6 +137,8 @@ public partial class HomePage : Page
         (string message, icon.Symbol, string brush, Health health) = status.Status switch
         {
             EngineStatus.Active => ("已生效", SymbolRegular.CheckmarkCircle24, "SystemFillColorSuccessBrush", Health.Fine),
+            EngineStatus.Degraded => ("部分生效", SymbolRegular.Warning24, caution, Health.Problem),
+            EngineStatus.EffectsReduced => ("已生效 · 纯色背景", SymbolRegular.Info24, secondary, Health.Fine),
             EngineStatus.Connecting => ($"正在连接{what}…", SymbolRegular.ArrowSync24, secondary, Health.Busy),
             EngineStatus.Initializing => ("引擎已加载，正在初始化…", SymbolRegular.ArrowSync24, secondary, Health.Busy),
             EngineStatus.Applying => ("正在应用当前设置…", SymbolRegular.ArrowSync24, secondary, Health.Busy),

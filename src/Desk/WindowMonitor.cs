@@ -17,6 +17,9 @@ internal sealed class WindowMonitor : IDisposable
     public event Action? MaximizedChanged;
 
     public bool HasMaximizedWindow { get; private set; }
+    private HashSet<string> _maximizedDevices = new(StringComparer.OrdinalIgnoreCase);
+    public bool IsMaximized(string device) => _maximizedDevices.Contains(device);
+    public void Refresh() => Evaluate();
 
     public WindowMonitor()
     {
@@ -34,7 +37,7 @@ internal sealed class WindowMonitor : IDisposable
         Hook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE);
         Hook(EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED);
 
-        HasMaximizedWindow = FindMaximizedWindow();
+        Evaluate();
     }
 
     public void Dispose()
@@ -78,19 +81,19 @@ internal sealed class WindowMonitor : IDisposable
 
     private void Evaluate()
     {
-        bool maximized = FindMaximizedWindow();
-        if (maximized != HasMaximizedWindow)
+        var devices = FindMaximizedDevices();
+        bool maximized = devices.Contains(DisplayTopology.DeviceForWindow(FindWindowW("Shell_TrayWnd", null)));
+        if (maximized != HasMaximizedWindow || !_maximizedDevices.SetEquals(devices))
         {
             HasMaximizedWindow = maximized;
+            _maximizedDevices = devices;
             MaximizedChanged?.Invoke();
         }
     }
 
-    private static bool FindMaximizedWindow()
+    private static HashSet<string> FindMaximizedDevices()
     {
-        IntPtr taskbar = FindWindowW("Shell_TrayWnd", null);
-        IntPtr monitor = taskbar != IntPtr.Zero ? MonitorFromWindow(taskbar, MONITOR_DEFAULTTONEAREST) : IntPtr.Zero;
-        bool found = false;
+        var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         EnumWindows((hwnd, _) =>
         {
@@ -102,12 +105,9 @@ internal sealed class WindowMonitor : IDisposable
             {
                 return true;
             }
-            if (monitor != IntPtr.Zero && MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) != monitor)
-            {
-                return true;
-            }
-            found = true;
-            return false;
+            string device = DisplayTopology.DeviceForWindow(hwnd);
+            if (device.Length > 0) found.Add(device);
+            return true;
         }, IntPtr.Zero);
 
         return found;

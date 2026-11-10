@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "core/apply_status.h"
+#include "core/adaptive_layout.h"
 #include "core/clickthrough_gate.h"
 #include "core/host_watch.h"
 #include "core/init_policy.h"
@@ -53,6 +54,64 @@ using desk::core::HostWatch;
 using desk::core::InitPolicy;
 using desk::core::Summarize;
 using desk::core::ThreadReport;
+
+TEST(LayoutKeepsRequestedSpacingWhenThereIsRoom) {
+    desk::core::LayoutInput input{1560, 230, 180, 106, 24, 48, 28, 8};
+    auto plan = desk::core::FitTaskbar(input);
+    CHECK(plan.button == 48);
+    CHECK(plan.monitorLevel == 0);
+    CHECK(plan.left == 246 && plan.right == 246);
+    CHECK(plan.maxWidth + plan.left + plan.right == 1560);
+}
+
+TEST(LayoutWideDesktopKeepsAllEightButtonsAtRequestedSize) {
+    desk::core::LayoutInput input{1560, 364, 171, 106, 24, 48, 28, 8};
+    auto plan = desk::core::FitTaskbar(input);
+    CHECK(plan.button == 48 && plan.monitorLevel == 0);
+    CHECK(plan.maxWidth >= 8 * 48 + 24);
+}
+
+TEST(LayoutTightensSpacingBeforeHidingMetrics) {
+    desk::core::LayoutInput input{1000, 200, 180, 100, 24, 56, 28, 12};
+    auto plan = desk::core::FitTaskbar(input);
+    CHECK(plan.monitorLevel == 0);
+    CHECK(plan.button == 46);
+    CHECK(plan.button * 12 + 24 <= plan.maxWidth);
+}
+
+TEST(LayoutUsesPrimaryMetricThenHidesIslandAndRestoresIt) {
+    desk::core::LayoutInput input{880, 200, 180, 100, 24, 48, 28, 12};
+    auto compact = desk::core::FitTaskbar(input);
+    CHECK(compact.monitorLevel == 1);
+    input.width = 800;
+    auto hidden = desk::core::FitTaskbar(input);
+    CHECK(hidden.monitorLevel == 2);
+    input.width = 1200;
+    input.previousLevel = hidden.monitorLevel;
+    CHECK(desk::core::FitTaskbar(input).monitorLevel == 0);
+}
+
+TEST(LayoutAvoidsOscillationAtTheRecoveryBoundary) {
+    desk::core::LayoutInput input{920, 200, 180, 100, 24, 48, 28, 12};
+    CHECK(desk::core::FitTaskbar(input).monitorLevel == 0);
+    input.previousLevel = 1;
+    CHECK(desk::core::FitTaskbar(input).monitorLevel == 1);
+    input.width = 960;
+    CHECK(desk::core::FitTaskbar(input).monitorLevel == 0);
+}
+
+TEST(LayoutPreservesClickTargetsAndFitsNarrowOrSecondaryScreens) {
+    desk::core::LayoutInput input{640, 260, 180, 100, 24, 48, 36, 20};
+    auto plan = desk::core::FitTaskbar(input);
+    CHECK(plan.button >= 44);
+    CHECK(plan.maxWidth >= 0 && plan.left + plan.right + plan.maxWidth <= input.width);
+    input.width = 1200; input.tray = 0; input.monitor = 0; input.compactMonitor = 0; input.buttons = 8;
+    plan = desk::core::FitTaskbar(input);
+    CHECK(plan.left == 16 && plan.right == 16 && plan.button == 48);
+    input.width = 0;
+    plan = desk::core::FitTaskbar(input);
+    CHECK(plan.maxWidth == 0 && plan.left == 0 && plan.right == 0);
+}
 
 // ----------------------------------------------------------- InitPolicy
 

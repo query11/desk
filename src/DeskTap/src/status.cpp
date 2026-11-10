@@ -53,6 +53,7 @@ struct State {
     std::wstring lostReason;
 
     std::map<uint32_t, core::ThreadReport> threads;
+    std::map<const void*, HRESULT> blurFallbacks;
 
     std::string lastContent;
     int64_t lastCounters[kCounterCount] = {};
@@ -211,6 +212,22 @@ std::wstring Body(const State& state) {
     json += L",\"uiThreads\":" + std::to_wstring(summary.threads);
     json += L",\"matched\":" + std::to_wstring(summary.matched);
     json += L",\"errors\":" + std::to_wstring(summary.errors);
+    size_t renderFailures = 0;
+    HRESULT renderError = S_OK;
+    for (const auto& [brush, reason] : state.blurFallbacks) {
+        if (FAILED(reason)) {
+            ++renderFailures;
+            renderError = reason;
+        }
+    }
+    json += L",\"material\":{\"fallbacks\":" + std::to_wstring(state.blurFallbacks.size());
+    json += L",\"failures\":" + std::to_wstring(renderFailures);
+    if (FAILED(renderError)) {
+        wchar_t hr[16];
+        swprintf_s(hr, L"%08X", static_cast<uint32_t>(renderError));
+        json += L",\"hr\":" + Quote(hr);
+    }
+    json += L"}";
     json += L",\"host\":{\"state\":" + Quote(HostName(state.host)) +
             L",\"session\":" + Quote(state.session);
     if (!state.lostReason.empty()) {
@@ -303,6 +320,16 @@ void ReportThread(DWORD threadId, const core::ThreadReport& report) {
 void ForgetThread(DWORD threadId) {
     std::lock_guard lock(g_mutex);
     g_state.threads.erase(threadId);
+}
+
+void SetBlurFallback(const void* brush, HRESULT reason) {
+    std::lock_guard lock(g_mutex);
+    g_state.blurFallbacks[brush] = reason;
+}
+
+void ClearBlurFallback(const void* brush) {
+    std::lock_guard lock(g_mutex);
+    g_state.blurFallbacks.erase(brush);
 }
 
 void Flush(bool force) {

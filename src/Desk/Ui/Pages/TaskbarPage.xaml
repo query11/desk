@@ -6,6 +6,8 @@
     xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
     Title="任务栏">
     <StackPanel Style="{StaticResource Desk.Page}">
+        <TextBlock Style="{StaticResource Desk.PageTitle}" Text="让常用应用，恰到好处" />
+        <TextBlock Style="{StaticResource Desk.Lead}" Text="调整图标、材质和信息显示。修改会自动保存，并应用到桌面。" />
 
         <Grid Margin="0,0,0,8">
             <Grid.ColumnDefinitions>
@@ -16,11 +18,11 @@
                 <TextBlock
                     Margin="0"
                     Style="{StaticResource Desk.SectionHeader}"
-                    Text="浮岛外观" />
+                    Text="外观与尺寸" />
                 <TextBlock
                     Margin="0,2,0,0"
                     Style="{StaticResource Desk.Caption}"
-                    Text="拖动滑块，任务栏会立即跟着变化；不满意随时点「恢复默认」。" />
+                    Text="建议图标 28 px；大小与按钮间距可以分别调整。" />
             </StackPanel>
             <ui:Button
                 x:Name="ResetButton"
@@ -49,7 +51,7 @@
                 <ui:SymbolIcon Symbol="DataUsage24" />
             </ui:CardControl.Icon>
             <ui:CardControl.Header>
-                <local:CardHeader Title="显示网速和资源占用" Description="在任务栏最左边放一个和其他浮岛同样质感的小岛，每秒刷新上传/下载速度和 CPU、内存占用，占用超过 85% 时数字变红。打开后系统的小组件（天气）按钮会隐藏，按 Win + W 仍可打开小组件。" />
+                <local:CardHeader Title="显示网速和资源占用" Description="每秒更新，用颜色提示高占用。开启后替代天气按钮，Win + W 仍可打开小组件。" />
             </ui:CardControl.Header>
             <ui:ToggleSwitch x:Name="MonitorSwitch" />
         </ui:CardControl>
@@ -60,7 +62,7 @@
             <ui:CardControl.Header>
                 <local:CardHeader Title="显示的内容" Description="信息岛打开后可选。" />
             </ui:CardControl.Header>
-            <StackPanel Orientation="Horizontal">
+            <WrapPanel>
                 <CheckBox
                     x:Name="MonitorNetworkBox"
                     MinWidth="0"
@@ -75,7 +77,7 @@
                     x:Name="MonitorMemoryBox"
                     MinWidth="0"
                     Content="内存" />
-            </StackPanel>
+            </WrapPanel>
         </ui:CardControl>
 
         <TextBlock Style="{StaticResource Desk.SectionHeader}" Text="行为" />
@@ -102,6 +104,6 @@
             <ui:ToggleSwitch x:Name="ClickThroughSwitch" />
         </ui:CardControl>
 
-        <TextBlock Style="{StaticResource Desk.Footnote}" Text="这里调整的数值保存在 Desk 的设置里，不会改动主题文件。着色浓度和明暗统一在浅色、深色模式下分别保存。" />
+        <TextBlock Style="{StaticResource Desk.Footnote}" Text="这里调整的数值保存在 Desk 的设置里，不会改动主题文件。透明程度和明暗统一在浅色、深色模式下分别保存。" />
     </StackPanel>
 </Page>
