@@ -17,6 +17,10 @@ public partial class MainWindow : FluentWindow
     public MainWindow()
     {
         InitializeComponent();
+        // The designed size is taller than a 768-pixel laptop screen: stay inside the work area.
+        var area = SystemParameters.WorkArea;
+        Width = Math.Min(Width, Math.Max(MinWidth, area.Width - 24));
+        Height = Math.Min(Height, Math.Max(MinHeight, area.Height - 24));
         _snackbars.SetSnackbarPresenter(Snackbars);
         _dialogs.SetDialogHost(Dialogs);
 
@@ -50,8 +54,11 @@ public partial class MainWindow : FluentWindow
 
     private void RefreshTrial()
     {
-        TrialBanner.Visibility = UiHost.App.PendingTrial == null ? Visibility.Collapsed : Visibility.Visible;
+        var trial = UiHost.App.PendingTrial;
+        TrialBanner.Visibility = trial == null ? Visibility.Collapsed : Visibility.Visible;
+        if (trial == null) return;
         TrialText.Text = $"正在试用「{UiHost.App.ThemeName}」 · {UiHost.App.TrialSecondsLeft} 秒后自动还原";
+        TrialProgress.Value = Math.Clamp((trial.ExpiresUtc - DateTime.UtcNow).TotalSeconds / ThemeTrialController.DurationSeconds, 0, 1);
     }
 
     private void TrialAction(Action action)

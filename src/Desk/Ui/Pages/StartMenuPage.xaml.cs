@@ -12,7 +12,7 @@ public partial class StartMenuPage : Page
     {
         InitializeComponent();
         _parameters = new ParameterSection(_app, ParameterScope.StartMenu, Parameters.StartMenu,
-            ParametersPanel, EmptyHint, ResetButton);
+            ParametersPanel, EmptyHint, ResetButton, "startmenu");
 
         StyleSwitch.Checked += (_, _) => SetStyled(true);
         StyleSwitch.Unchecked += (_, _) => SetStyled(false);
@@ -47,9 +47,12 @@ public partial class StartMenuPage : Page
         {
             StyleSwitch.IsChecked = _app.StyleStartMenu;
             SchemeBox.SelectedIndex = (int)_app.StartMenuScheme;
-            ModeText.Text = _app.StartMenuLightMode
-                ? "正在调整浅色玻璃的数值（着色浓度和明暗统一在浅色、深色下分别保存）。"
-                : "正在调整深色玻璃的数值（着色浓度和明暗统一在浅色、深色下分别保存）。";
+            StyledOptions.IsEnabled = _app.StyleStartMenu;
+            ModeText.Text = !_app.StyleStartMenu
+                ? "美化已关闭，开始菜单保持系统原样。打开上面的开关后可以调整。"
+                : _app.StartMenuLightMode
+                    ? "正在调整浅色玻璃的数值（透明程度和明暗统一在浅色、深色下分别保存）。"
+                    : "正在调整深色玻璃的数值（透明程度和明暗统一在浅色、深色下分别保存）。";
             _parameters.Refresh();
         }
         finally

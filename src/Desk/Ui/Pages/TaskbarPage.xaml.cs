@@ -12,7 +12,7 @@ public partial class TaskbarPage : Page
     {
         InitializeComponent();
         _parameters = new ParameterSection(_app, ParameterScope.Taskbar, Parameters.Taskbar,
-            ParametersPanel, EmptyHint, ResetButton);
+            ParametersPanel, EmptyHint, ResetButton, "taskbar");
 
         MaximizeBox.SelectionChanged += (_, _) =>
         {

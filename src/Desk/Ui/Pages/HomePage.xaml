@@ -30,7 +30,7 @@
      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
      <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
       <TextBlock x:Name="CurrentThemeName" FontSize="17" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-      <TextBlock Text="当前方案 · 效果示意，以桌面实际显示为准" Margin="0,4,0,0" Style="{StaticResource Desk.Caption}" />
+      <TextBlock x:Name="CurrentThemeCaption" Text="当前方案 · 效果示意，以桌面实际显示为准" Margin="0,4,0,0" Style="{StaticResource Desk.Caption}" />
      </StackPanel>
      <ui:Button x:Name="BrowseThemesButton" Grid.Column="1" Content="浏览外观方案" Appearance="Primary" VerticalAlignment="Center">
       <ui:Button.Icon><ui:SymbolIcon Symbol="PaintBrush24" /></ui:Button.Icon>
@@ -39,7 +39,18 @@
    </StackPanel>
   </Border>
   <ui:InfoBar x:Name="EngineErrorInfo" Title="引擎无法启动" Margin="0,12,0,0" IsClosable="False" Severity="Error" />
-  <ui:InfoBar x:Name="OutdatedInfo" Title="Desk 已更新" Margin="0,12,0,0" IsClosable="False" Severity="Informational" Message="资源管理器仍在运行旧引擎。重启资源管理器后更新，打开的文件夹窗口会被关闭。" />
+  <!--  An InfoBar has no room for an action; what has to be done is one click away here.  -->
+  <Border x:Name="OutdatedBanner" Margin="0,12,0,0" Padding="16,12" CornerRadius="8" BorderThickness="1" Visibility="Collapsed"
+          Background="{DynamicResource SystemFillColorAttentionBackgroundBrush}" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+   <DockPanel>
+    <ui:Button x:Name="OutdatedRestartButton" DockPanel.Dock="Right" Margin="16,0,0,0" VerticalAlignment="Center" Content="重启资源管理器…" />
+    <ui:SymbolIcon DockPanel.Dock="Left" Margin="0,1,12,0" VerticalAlignment="Top" FontSize="20" Symbol="Info24" />
+    <StackPanel VerticalAlignment="Center">
+     <TextBlock Text="Desk 已更新" FontWeight="SemiBold" />
+     <TextBlock Margin="0,2,0,0" Text="资源管理器还在运行旧版引擎，重启它之后换成新的。打开的文件夹窗口会被关闭。" Style="{StaticResource Desk.Caption}" />
+    </StackPanel>
+   </DockPanel>
+  </Border>
   <ui:InfoBar x:Name="ConflictInfo" Title="可能有冲突" Margin="0,12,0,0" IsClosable="True" Severity="Warning" />
   <TextBlock Text="细节与状态" Style="{StaticResource Desk.SectionHeader}" />
   <Grid x:Name="StatusTiles">

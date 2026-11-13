@@ -28,6 +28,9 @@ internal sealed record ThemeOption(string Id, string Name, string Description, b
 internal interface IThemeLibrary
 {
     string ThemeId { get; set; }
+
+    /// <summary>The trial that is running, if one is: its theme is shown but not chosen yet.</summary>
+    ThemeTrial? PendingTrial { get; }
     IReadOnlyList<ThemeOption> GetAppearanceOptions();
     void StartThemeTrial(string id);
     void ToggleFavorite(string id);

@@ -22,9 +22,16 @@ internal sealed class ParameterSection
     private Wpf.Ui.Controls.Button? _undo;
     private string? _builtFor;
 
+    // Which sections the user left open, per page: a page is built again on
+    // every visit and would fold them otherwise.
+    private static readonly HashSet<string> Expanded = [];
+    private readonly string? _layoutKey;
+
+    /// <param name="layoutKey">Names the page; with it the expanders reopen the way they were left.</param>
     public ParameterSection(IAppearanceEditor app, ParameterScope scope, IReadOnlyList<ParameterInfo> parameters,
-        Panel panel, FrameworkElement emptyHint, ButtonBase reset)
+        Panel panel, FrameworkElement emptyHint, ButtonBase reset, string? layoutKey = null)
     {
+        _layoutKey = layoutKey;
         _app = app;
         _scope = scope;
         _parameters = parameters;
@@ -72,6 +79,7 @@ internal sealed class ParameterSection
             Header = "效果预览", Content = _preview, IsExpanded = false,
             Margin = new Thickness(0, 0, 0, 8),
         };
+        Remember(previewSection, "preview");
         AutomationProperties.SetAutomationId(previewSection, "Preview." + _scope);
         _panel.Children.Add(previewSection);
         var presetRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
@@ -141,9 +149,19 @@ internal sealed class ParameterSection
                 Header = "高级设置 · 明暗、色彩与颗粒", Content = advancedPanel,
                 Margin = new Thickness(0, 12, 0, 4), IsExpanded = false,
             };
+            Remember(advanced, "advanced");
             AutomationProperties.SetAutomationId(advanced, "Advanced." + _scope);
             _panel.Children.Add(advanced);
         }
+    }
+
+    private void Remember(System.Windows.Controls.Expander expander, string name)
+    {
+        if (_layoutKey == null) return;
+        string key = _layoutKey + "." + name;
+        expander.IsExpanded = Expanded.Contains(key);
+        expander.Expanded += (_, _) => Expanded.Add(key);
+        expander.Collapsed += (_, _) => Expanded.Remove(key);
     }
 
     private bool TryEdit(Action action)

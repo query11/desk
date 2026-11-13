@@ -9,6 +9,7 @@ public partial class HomePage : Page
 {
     private readonly DeskApp _app = UiHost.App;
     private bool _updating;
+    private bool _hadProblem;
     private readonly DesktopPreview _preview = new() { Height = 235 };
 
     public HomePage()
@@ -26,14 +27,8 @@ public partial class HomePage : Page
             _app.Reapply();
             UiHost.Toast("已重新应用", "正在重新连接任务栏和开始菜单，几秒内生效。");
         };
-        RestartExplorerButton.Click += async (_, _) =>
-        {
-            if (await UiHost.ConfirmAsync("重启资源管理器？",
-                    "任务栏会消失几秒再出现，打开的文件夹窗口会被关闭。", "重启"))
-            {
-                _app.RestartExplorer();
-            }
-        };
+        RestartExplorerButton.Click += (_, _) => RestartExplorer();
+        OutdatedRestartButton.Click += (_, _) => RestartExplorer();
 
         Loaded += async (_, _) =>
         {
@@ -48,6 +43,15 @@ public partial class HomePage : Page
             _app.StateChanged -= Refresh;
             _app.StatusChanged -= RefreshStatus;
         };
+    }
+
+    private async void RestartExplorer()
+    {
+        if (await UiHost.ConfirmAsync("重启资源管理器？",
+                "任务栏会消失几秒再出现，打开的文件夹窗口会被关闭。", "重启"))
+        {
+            _app.RestartExplorer();
+        }
     }
 
     private void SetEnabled(bool enabled)
@@ -66,8 +70,13 @@ public partial class HomePage : Page
             EnabledSwitch.IsChecked = _app.Enabled;
 
             CurrentThemeName.Text = string.IsNullOrWhiteSpace(_app.ThemeName) ? "尚未选择方案" : _app.ThemeName;
-            _preview.Update(_app.GetAppearanceOptions().FirstOrDefault(t => t.Id == _app.ThemeId),
-                _app.SystemLightMode, _app.StartMenuLightMode);
+            CurrentThemeCaption.Text = _app.PendingTrial != null
+                ? "试用中，到时自动换回 · 效果示意，以桌面实际显示为准"
+                : "当前方案 · 效果示意，以桌面实际显示为准";
+            // The picture shows what the switch above turns on: dimmed while it is off.
+            _preview.Opacity = _app.Enabled ? 1 : .5;
+            _preview.MonitorItems = _app.MonitorItems;
+            _preview.Update(_app.CurrentAppearance, _app.SystemLightMode, _app.StartMenuLightMode);
 
             EngineErrorInfo.Message = _app.EngineError ?? "";
             EngineErrorInfo.IsOpen = _app.EngineError != null;
@@ -96,7 +105,16 @@ public partial class HomePage : Page
             "开始菜单", "开始菜单");
         ShowState(taskbar, startMenu);
 
-        OutdatedInfo.IsOpen = _app.ExplorerOutdated;
+        OutdatedBanner.Visibility = _app.ExplorerOutdated ? Visibility.Visible : Visibility.Collapsed;
+
+        // The way out of a problem is in the maintenance section: open it
+        // when one appears, once, and leave it to the user after that.
+        bool problem = _app.Enabled && (taskbar == Health.Problem || startMenu == Health.Problem);
+        if (problem && !_hadProblem)
+        {
+            MaintenanceExpander.IsExpanded = true;
+        }
+        _hadProblem = problem;
     }
 
     /// <summary>The label next to the title: the worst of the two parts decides.</summary>

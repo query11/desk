@@ -5,6 +5,9 @@ internal sealed record ThemeTrial(string OriginalTheme, string TrialTheme, DateT
 /// <summary>A persisted rollback journal; the host owns the timer, independently of settings windows.</summary>
 internal sealed class ThemeTrialController(Settings settings, Func<bool> save, Action apply, TimeProvider clock)
 {
+    /// <summary>How long a trial lasts before the previous theme comes back.</summary>
+    public const double DurationSeconds = 15;
+
     public event Action? Changed;
     public ThemeTrial? Pending => settings.PendingThemeTrial;
     public int SecondsLeft => Pending is { } trial ? Math.Max(0, (int)Math.Ceiling((trial.ExpiresUtc - clock.GetUtcNow().UtcDateTime).TotalSeconds)) : 0;
@@ -21,7 +24,7 @@ internal sealed class ThemeTrialController(Settings settings, Func<bool> save, A
     {
         if (id == settings.Theme && Pending == null) return;
         string original = Pending?.OriginalTheme ?? settings.Theme;
-        Change(id, new ThemeTrial(original, id, clock.GetUtcNow().UtcDateTime.AddSeconds(15)));
+        Change(id, new ThemeTrial(original, id, clock.GetUtcNow().UtcDateTime.AddSeconds(DurationSeconds)));
     }
 
     public void Keep()

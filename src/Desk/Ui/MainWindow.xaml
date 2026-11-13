@@ -31,13 +31,18 @@
         </ui:TitleBar>
         <Border x:Name="TrialBanner" Grid.Row="1" Margin="16,4,16,8" Padding="16,10" CornerRadius="12"
                 Background="{DynamicResource SystemFillColorAttentionBackgroundBrush}" Visibility="Collapsed">
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                    <ui:Button x:Name="CancelTrialButton" Content="立即还原" Margin="12,0,8,0" />
-                    <ui:Button x:Name="KeepTrialButton" Content="保留这套" Appearance="Primary" />
-                </StackPanel>
-                <TextBlock x:Name="TrialText" VerticalAlignment="Center" TextWrapping="Wrap" />
-            </DockPanel>
+            <StackPanel>
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <ui:Button x:Name="CancelTrialButton" Content="立即还原" Margin="12,0,8,0" />
+                        <ui:Button x:Name="KeepTrialButton" Content="保留这套" Appearance="Primary" />
+                    </StackPanel>
+                    <TextBlock x:Name="TrialText" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </DockPanel>
+                <!--  The time left, at a glance.  -->
+                <ProgressBar x:Name="TrialProgress" Height="3" Margin="0,10,0,0" Minimum="0" Maximum="1" Value="1"
+                             AutomationProperties.Name="试用剩余时间" />
+            </StackPanel>
         </Border>
 
         <!--

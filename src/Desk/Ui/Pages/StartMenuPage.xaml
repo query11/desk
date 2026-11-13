@@ -18,6 +18,8 @@
             </ui:CardControl.Header>
             <ui:ToggleSwitch x:Name="StyleSwitch" />
         </ui:CardControl>
+        <!--  Everything below changes the styled menu only; it is switched off with it.  -->
+        <StackPanel x:Name="StyledOptions">
         <ui:CardControl>
             <ui:CardControl.Icon>
                 <ui:SymbolIcon Symbol="DarkTheme24" />
@@ -67,6 +69,7 @@
             Message="自定义主题可以在主题文件里直接修改；内置主题都可以在这里调整。"
             Severity="Informational" />
         <StackPanel x:Name="ParametersPanel" />
+        </StackPanel>
 
         <TextBlock Style="{StaticResource Desk.Footnote}" Text="开始菜单关着的时候也会更新，下次打开就能看到新的效果。" />
     </StackPanel>

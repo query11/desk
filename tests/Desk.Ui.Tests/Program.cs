@@ -127,6 +127,8 @@ internal static class Program
             Layout(root);
             Check(Descendants(root).OfType<DesktopPreview>().Count() == 7, "Seven recommended paired presets");
             Check(Descendants(root).OfType<UniformGrid>().Single().Columns == (width < 620 ? 1 : 2), "Responsive gallery columns");
+            Check((string)Find<Wpf.Ui.Controls.Button>(root, "Gallery.Filter.推荐").Content == "推荐  7", "Filters show how many themes they hold");
+            Check(Find<Wpf.Ui.Controls.Button>(root, "Gallery.Undo").Visibility == Visibility.Collapsed, "Nothing to undo before a switch");
             Render(root, Path.Combine(output, $"Gallery-{(light ? "light" : "dark")}-{width}.png"));
             void Click(string id)
             {
@@ -137,6 +139,7 @@ internal static class Program
             Click("Gallery.Apply.desk-air");
             Check(library.ThemeId == "desk-air", "Apply selected preset");
             Check(!Find<Wpf.Ui.Controls.Button>(root, "Gallery.Apply.desk-air").IsEnabled, "Current preset cannot be reapplied accidentally");
+            Check(Find<Wpf.Ui.Controls.Button>(root, "Gallery.Undo").Visibility == Visibility.Visible, "A switch offers its undo");
             Click("Gallery.Undo");
             Check(library.ThemeId == "desk-islands", "Switch undo restores previous theme");
             Click("Gallery.Mode");
@@ -158,7 +161,15 @@ internal static class Program
             Check(Descendants(root).OfType<DesktopPreview>().Count() == 1, "Favorite filter");
             Click("Gallery.Trial.desk-dusk");
             Check(library.ThemeId == "desk-dusk", "Trial action is wired");
-            library.ThemeId = "desk-islands";
+            var keep = Find<Wpf.Ui.Controls.Button>(root, "Gallery.Apply.desk-dusk");
+            Check(keep.IsEnabled && (string)keep.Content == "保留这套", "A running trial can be kept from its card");
+            Check(Find<Wpf.Ui.Controls.Button>(root, "Gallery.Undo").Visibility == Visibility.Collapsed, "No undo while a trial runs");
+            Click("Gallery.Filter.全部");
+            var back = Find<Wpf.Ui.Controls.Button>(root, "Gallery.Apply.desk-islands");
+            Check(back.IsEnabled && (string)back.Content == "还原到这套", "A running trial can be ended from the original theme's card");
+            Click("Gallery.Apply.desk-islands");
+            Check(library.ThemeId == "desk-islands" && library.PendingTrial == null, "Returning to the original theme ends the trial");
+            Click("Gallery.Filter.收藏");
             Click("Gallery.Favorite.desk-dusk");
             Check(!Descendants(root).OfType<DesktopPreview>().Any(), "Remove favorite updates filter");
             Click("Gallery.Filter.全部");
@@ -171,7 +182,14 @@ internal static class Program
                 var bounds = control.TransformToAncestor(root).TransformBounds(new Rect(control.RenderSize));
                 Check(bounds.Left >= -1 && bounds.Right <= width + 1, "Gallery action fits available width");
             }
-            Console.WriteLine($"PASS gallery, {(light ? "light" : "dark")}, {width}px: apply, undo, search, empty, error, preview isolation, layout");
+            // The page is built again on every visit: what it remembers lives outside it.
+            var state = new GalleryState();
+            var visit = new ThemeGallery(new MemoryLibrary(), light, state);
+            Find<Wpf.Ui.Controls.Button>(visit, "Gallery.Filter.全部").RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Find<Wpf.Ui.Controls.Button>(visit, "Gallery.Mode").RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            var revisit = new ThemeGallery(new MemoryLibrary(), light, state);
+            Check(Descendants(revisit).OfType<DesktopPreview>().Count() == 10 && state.Light == !light, "A second visit keeps the filter and the preview mode");
+            Console.WriteLine($"PASS gallery, {(light ? "light" : "dark")}, {width}px: apply, undo, trial, search, empty, error, preview isolation, revisit, layout");
         }
         foreach (bool light in new[] { true, false })
         foreach (int width in new[] { 1160, 720 })
@@ -237,7 +255,7 @@ internal static class Program
             var enabled = Find<Wpf.Ui.Controls.ToggleSwitch>(root, "Displays.Enabled");
             enabled.IsChecked = true;
             Find<ComboBox>(root, "Displays.Maximize").SelectedIndex = 2;
-            Find<CheckBox>(root, "Displays.show").IsChecked = false;
+            Find<ComboBox>(root, "Displays.show").SelectedIndex = 2;
             Layout(root);
             Check(service.GetDisplayPreferences("A").Enabled && service.GetDisplayPreferences("A").ShowMonitor == false, "Primary display settings stored");
             Check(ReferenceEquals(originalScreens, screens.ItemsSource), "Editing a profile preserves the display selector");
@@ -249,6 +267,7 @@ internal static class Program
             screens.SelectedIndex = 0;
             Layout(root);
             Check(Find<ComboBox>(root, "Displays.Maximize").SelectedIndex == 2, "Return restores primary behavior");
+            Check(Find<ComboBox>(root, "Displays.show").SelectedIndex == 2 && Find<ComboBox>(root, "Displays.cpu").SelectedIndex == 0, "Info island choices return, untouched ones follow the global setting");
             Check(service.GetDisplayPreferences("B").MaximizeMode == MaximizeMode.Merge, "Secondary behavior retained");
             var displayFrame = new DispatcherFrame();
             var displayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
@@ -326,14 +345,20 @@ internal static class Program
         private readonly HashSet<string> _favorites = [];
         private string _id = "desk-islands";
         public bool FailSelection;
+        public ThemeTrial? PendingTrial { get; private set; }
         public string ThemeId
         {
             get => _id;
-            set { if (FailSelection) throw new IOException("测试：主题文件已被移走"); _id = value; }
+            set { if (FailSelection) throw new IOException("测试：主题文件已被移走"); _id = value; PendingTrial = null; }
         }
         public IReadOnlyList<ThemeOption> GetAppearanceOptions() => Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "themes"), "*.json")
             .Select(f => ThemeOption.Read(f, false)).Select(t => t with { Favorite = _favorites.Contains(t.Id) }).OrderByDescending(t => t.Favorite).ThenBy(t => t.Theme?.Order ?? 100).ToList();
-        public void StartThemeTrial(string id) => ThemeId = id;
+        public void StartThemeTrial(string id)
+        {
+            string original = PendingTrial?.OriginalTheme ?? _id;
+            ThemeId = id;
+            PendingTrial = new ThemeTrial(original, id, DateTime.UtcNow.AddSeconds(ThemeTrialController.DurationSeconds));
+        }
         public void ToggleFavorite(string id) { if (!_favorites.Remove(id)) _favorites.Add(id); }
         public string DuplicateTheme(string id, string name) => throw new NotSupportedException();
         public void RenameTheme(string id, string name) => throw new NotSupportedException();

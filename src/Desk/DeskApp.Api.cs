@@ -110,6 +110,20 @@ internal sealed partial class DeskApp : IAppearanceEditor, IThemeLibrary
         set => ChangeSetting(() => _settings.MonitorMemory = value);
     }
 
+    /// <summary>What the info island shows, in its order; empty when it is switched off.</summary>
+    public IReadOnlyList<string> MonitorItems
+    {
+        get
+        {
+            var items = new List<string>(3);
+            if (!_settings.ShowMonitor) return items;
+            if (_settings.MonitorNetwork) items.Add("network");
+            if (_settings.MonitorCpu) items.Add("cpu");
+            if (_settings.MonitorMemory) items.Add("memory");
+            return items;
+        }
+    }
+
     /// <summary>What was found the last time autostart was checked or changed.</summary>
     public AutostartStatus AutostartInfo { get; private set; } = AutostartStatus.Unchecked;
 
@@ -215,6 +229,12 @@ internal sealed partial class DeskApp : IAppearanceEditor, IThemeLibrary
     }
 
     public IReadOnlyList<ThemeOption> GetAppearanceOptions() => _library.List();
+
+    /// <summary>The loaded theme with the user's changes, for a preview; no files are read.</summary>
+    public ThemeOption? CurrentAppearance => _theme == null
+        ? null
+        : new ThemeOption(_theme.Id, _theme.Name, _theme.Description, false, _theme,
+            new Dictionary<string, string>(Overrides));
 
     public event Action? TrialChanged;
     public ThemeTrial? PendingTrial => _themeTrial.Pending;

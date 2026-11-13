@@ -13,26 +13,37 @@ internal sealed class DesktopPreview : FrameworkElement
     private bool _light = true;
     private bool _menuLight = true;
     public ImageSource? Wallpaper { get; set; }
-    private ImageSource? _cachedWallpaper;
-    private int _cachedWidth;
-    private readonly Dictionary<int, ImageSource> _blurredWallpapers = [];
+
+    /// <summary>
+    /// What the info island on the left shows ("network", "cpu", "memory");
+    /// empty or null when it is switched off.
+    /// </summary>
+    public IReadOnlyList<string>? MonitorItems { get; set; }
+
+    // One cache for every preview: the gallery rebuilds its cards while the
+    // user types in the search box, and all cards share a size and a wallpaper.
+    private static readonly Dictionary<(int Width, int Radius), ImageSource> BlurredWallpapers = [];
+    private static ImageSource? _blurredFrom;
 
     private ImageSource BlurredWallpaper(double width, double blur)
     {
-        int pixels = Math.Clamp((int)Math.Ceiling(width), 320, 1600);
-        if (_cachedWallpaper != Wallpaper || _cachedWidth != pixels)
+        // Rounded up to steps of 64: resizing the window doesn't blur the
+        // wallpaper again for every pixel of width.
+        int pixels = Math.Clamp(((int)Math.Ceiling(width) + 63) / 64 * 64, 320, 1600);
+        if (!ReferenceEquals(_blurredFrom, Wallpaper))
         {
-            _blurredWallpapers.Clear(); _cachedWallpaper = Wallpaper; _cachedWidth = pixels;
+            BlurredWallpapers.Clear();
+            _blurredFrom = Wallpaper;
         }
         int radius = (int)Math.Clamp(Math.Round(blur), 0, 60);
-        if (_blurredWallpapers.TryGetValue(radius, out var cached)) return cached;
+        if (BlurredWallpapers.TryGetValue((pixels, radius), out var cached)) return cached;
         var visual = new DrawingVisual { Effect = new BlurEffect { Radius = radius, RenderingBias = RenderingBias.Performance } };
         using (var context = visual.RenderOpen())
             context.DrawRectangle(new ImageBrush(Wallpaper) { Stretch = Stretch.UniformToFill }, null, new Rect(-20, -20, pixels + 40, 400));
         var bitmap = new RenderTargetBitmap(pixels, 360, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(visual); bitmap.Freeze();
-        if (_blurredWallpapers.Count >= 8) _blurredWallpapers.Clear();
-        _blurredWallpapers[radius] = bitmap;
+        if (BlurredWallpapers.Count >= 24) BlurredWallpapers.Clear();
+        BlurredWallpapers[(pixels, radius)] = bitmap;
         return bitmap;
     }
 
@@ -146,6 +157,22 @@ internal sealed class DesktopPreview : FrameworkElement
         dc.DrawRoundedRectangle(tray, null, new Rect(586 + side, 333, 27, 2), 1, 1);
         dc.DrawEllipse(tray, null, new Point(561 + side, 328), 2, 2);
         dc.DrawEllipse(tray, null, new Point(571 + side, 328), 2, 2);
+        if (MonitorItems is { Count: > 0 } items)
+        {
+            // The info island: a label and a value per item, as on the desktop.
+            // When it would run into the apps it shows less, like the real one.
+            double left = 16 - side, cell = 30;
+            int count = items.Count;
+            while (count > 0 && left + count * cell + 14 > 320 - width / 2 - 8) count--;
+            if (count > 0 && !bar) Glass(new Rect(left, 307 + gap, count * cell + 14, 48 - gap * 2), "island", _light, radius);
+            var label = new SolidColorBrush(_light ? Color.FromArgb(120, 30, 45, 60) : Color.FromArgb(150, 240, 245, 255));
+            for (int i = 0; i < count; i++)
+            {
+                double x = left + 10 + i * cell;
+                dc.DrawRoundedRectangle(label, null, new Rect(x, 323, items[i] == "network" ? 16 : 11, 2.5), 1, 1);
+                dc.DrawRoundedRectangle(tray, null, new Rect(x, 332, items[i] == "network" ? 21 : 15, 3.5), 1.5, 1.5);
+            }
+        }
         dc.Pop();
         dc.Pop();
         dc.Pop();
