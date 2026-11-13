@@ -105,7 +105,7 @@ internal sealed class ThemeGallery : StackPanel
         });
         AutomationProperties.SetAutomationId(import, "Gallery.Import");
         _tools.Children.Add(import);
-        var refresh = new Button { ToolTip = "重新读取主题文件夹", Width = 36, Padding = new Thickness(0), Margin = new Thickness(0, 0, 0, 8), Icon = new SymbolIcon { Symbol = SymbolRegular.ArrowSync24 } };
+        var refresh = new Button { ToolTip = "重新读取主题文件夹", Width = 36, Height = 32, Padding = new Thickness(0), Margin = new Thickness(0, 0, 0, 8), Icon = new SymbolIcon { Symbol = SymbolRegular.ArrowSync24 } };
         refresh.Click += (_, _) => Refresh();
         AutomationProperties.SetName(refresh, "刷新列表");
         AutomationProperties.SetAutomationId(refresh, "Gallery.Refresh");

@@ -58,7 +58,9 @@ public partial class MainWindow : FluentWindow
         TrialBanner.Visibility = trial == null ? Visibility.Collapsed : Visibility.Visible;
         if (trial == null) return;
         TrialText.Text = $"正在试用「{UiHost.App.ThemeName}」 · {UiHost.App.TrialSecondsLeft} 秒后自动还原";
-        TrialProgress.Value = Math.Clamp((trial.ExpiresUtc - DateTime.UtcNow).TotalSeconds / ThemeTrialController.DurationSeconds, 0, 1);
+        double left = Math.Clamp((trial.ExpiresUtc - DateTime.UtcNow).TotalSeconds / ThemeTrialController.DurationSeconds, 0, 1);
+        TrialLeft.Width = new GridLength(left, GridUnitType.Star);
+        TrialGone.Width = new GridLength(1 - left, GridUnitType.Star);
     }
 
     private void TrialAction(Action action)

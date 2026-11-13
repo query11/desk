@@ -40,8 +40,14 @@
                     <TextBlock x:Name="TrialText" VerticalAlignment="Center" TextWrapping="Wrap" />
                 </DockPanel>
                 <!--  The time left, at a glance.  -->
-                <ProgressBar x:Name="TrialProgress" Height="3" Margin="0,10,0,0" Minimum="0" Maximum="1" Value="1"
-                             AutomationProperties.Name="试用剩余时间" />
+                <Grid Height="3" Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition x:Name="TrialLeft" Width="1*" />
+                        <ColumnDefinition x:Name="TrialGone" Width="0*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.ColumnSpan="2" CornerRadius="1.5" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                    <Border CornerRadius="1.5" Background="{DynamicResource AccentFillColorDefaultBrush}" />
+                </Grid>
             </StackPanel>
         </Border>
 
