@@ -330,7 +330,8 @@ internal sealed class ThemeGallery : StackPanel
 
         var trialButton = new Button
         {
-            Content = trying ? "试用中…" : "试用 15 秒", IsEnabled = usable && !_busy && !selected,
+            // The theme a trial returns to has nothing to try.
+            Content = trying ? "试用中…" : "试用 15 秒", IsEnabled = usable && !_busy && !selected && !original,
             Margin = new Thickness(8, 0, 0, 0), ToolTip = "先换上看看，15 秒后自动换回；窗口顶部可以保留或立即还原。",
         };
         AutomationProperties.SetAutomationId(trialButton, "Gallery.Trial." + option.Id);
