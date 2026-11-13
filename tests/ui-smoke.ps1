@@ -234,6 +234,10 @@ function Assert-Title($window, [string]$expected) {
         $c.BoundingRectangle.Left -gt $left }.GetNewClosure()
     $title = Wait-Until { Find-Element $window $isTitle } 5
     if (-not $title) { Fail "page title '$expected' not shown"; Write-Tree $window; return $false }
+    # A page opens at its top: the heading sits below the pinned breadcrumb,
+    # not scrolled out of view by the position the previous page was left at.
+    $top = [int]($title.Current.BoundingRectangle.Top - $window.Current.BoundingRectangle.Top)
+    if ($top -lt 150) { Fail "page '$expected' opened scrolled (heading at $top)" }
     return $true
 }
 

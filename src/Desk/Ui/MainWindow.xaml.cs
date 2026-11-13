@@ -39,6 +39,14 @@ public partial class MainWindow : FluentWindow
         {
             UpdateResponsiveLayout(e.NewSize.Width);
         };
+        // All pages share one scrolling area, and it keeps its position: a
+        // page opened after scrolling another one would start in the middle.
+        Navigation.Navigated += (_, _) =>
+        {
+            ScrollPageToTop();
+            // Again once the new page is laid out, in case it wasn't in place yet.
+            Dispatcher.BeginInvoke(ScrollPageToTop, System.Windows.Threading.DispatcherPriority.Loaded);
+        };
         Closing += (_, _) =>
         {
             try
@@ -50,6 +58,42 @@ public partial class MainWindow : FluentWindow
                 // Not loaded yet; nothing to undo.
             }
         };
+    }
+
+    private void ScrollPageToTop() => FindScrollViewer(Navigation)?.ScrollToHome();
+
+    /// <summary>The first scroll viewer below an element; the page's own ones lie deeper.</summary>
+    private static System.Windows.Controls.ScrollViewer? FindScrollViewer(DependencyObject parent)
+    {
+        var queue = new Queue<DependencyObject>();
+        queue.Enqueue(parent);
+        while (queue.Count > 0)
+        {
+            var element = queue.Dequeue();
+            // The navigation pane scrolls its own list; only the content area is meant.
+            if (element is System.Windows.Controls.ScrollViewer viewer && HasPageInside(viewer))
+            {
+                return viewer;
+            }
+            for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(element); i++)
+            {
+                queue.Enqueue(System.Windows.Media.VisualTreeHelper.GetChild(element, i));
+            }
+        }
+        return null;
+    }
+
+    private static bool HasPageInside(DependencyObject parent)
+    {
+        for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is System.Windows.Controls.Page || HasPageInside(child))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void RefreshTrial()
