@@ -334,6 +334,8 @@ internal sealed class ParameterPreview : Grid
             Part = focus, QuickBlur = true, Height = focus == PreviewFocus.StartMenu ? 220 : 150,
         };
         Margin = new Thickness(0, 0, 0, 12);
+        // The picture itself ignores the mouse; this keeps the tooltip.
+        Background = Brushes.Transparent;
         Children.Add(Picture);
         Children.Add(Pill(Label("效果示意"), HorizontalAlignment.Left));
         Children.Add(Pill(_mode = Label(""), HorizontalAlignment.Right));
