@@ -18,7 +18,7 @@ internal sealed class ParameterSection
     private readonly ButtonBase _reset;
     private readonly List<ParameterCard> _cards = [];
     private readonly List<(MaterialPreset Preset, Wpf.Ui.Controls.Button Button)> _presets = [];
-    private MaterialPreview? _preview;
+    private ParameterPreview? _preview;
     private Wpf.Ui.Controls.Button? _undo;
     private System.Windows.Controls.RadioButton? _lightMode;
     private System.Windows.Controls.RadioButton? _darkMode;
@@ -53,6 +53,9 @@ internal sealed class ParameterSection
                 UiHost.Toast("已恢复默认", "可以点「撤销调整」找回刚才的效果。");
         };
     }
+
+    /// <summary>What the info island shows where this page applies, for the preview; none when not set.</summary>
+    public Func<IReadOnlyList<string>>? MonitorItems { get; set; }
 
     /// <summary>The mode the desktop shows this part in now.</summary>
     private bool ShownLight => _app.EffectiveLight(_scope);
@@ -95,7 +98,8 @@ internal sealed class ParameterSection
         // Only some values are kept per mode; without them there is nothing to choose.
         if (available.Any(p => p.PerMode)) BuildModeChoice(available.Where(p => p.PerMode).Select(p => p.Title).Distinct());
 
-        _preview = new MaterialPreview(_scope);
+        // The same picture as the overview and the gallery, drawn from the values being edited.
+        _preview = new ParameterPreview(_scope == ParameterScope.StartMenu ? PreviewFocus.StartMenu : PreviewFocus.Taskbar);
         var previewSection = new System.Windows.Controls.Expander
         {
             Header = "效果预览", Content = _preview, IsExpanded = false,
@@ -277,7 +281,15 @@ internal sealed class ParameterSection
     private void RefreshPreview()
     {
         bool light = EditingLight;
-        _preview?.Update(name => _app.GetParameter(_scope, name, light), light);
+        if (_preview != null)
+        {
+            // The part of this page in the mode being edited; the other one as the desktop shows it.
+            bool taskbar = _scope == ParameterScope.Taskbar ? light : _app.SystemLightMode;
+            bool menu = _scope == ParameterScope.StartMenu ? light : _app.StartMenuLightMode;
+            _preview.Picture.MonitorItems = MonitorItems?.Invoke();
+            _preview.Picture.Update(_app.GetConstant, bar: !_app.HasParameter("radius"), taskbar, menu);
+            _preview.ShowMode(light);
+        }
         if (_undo != null) _undo.IsEnabled = _app.CanUndoAppearance(_scope, light);
         foreach (var (preset, button) in _presets)
         {

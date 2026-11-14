@@ -1,15 +1,38 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 
 namespace Desk.Ui;
 
-/// <summary>Vector illustration, not a screenshot. Reads the same constants as the theme compiler.</summary>
+/// <summary>Which part of the desktop a preview shows.</summary>
+internal enum PreviewFocus
+{
+    /// <summary>All of it: the Start menu open above the taskbar (overview, gallery).</summary>
+    Desktop,
+
+    /// <summary>The bottom of the screen, larger, with the Start menu closed (taskbar and display pages).</summary>
+    Taskbar,
+
+    /// <summary>The Start menu, larger (Start menu page).</summary>
+    StartMenu,
+}
+
+/// <summary>
+/// Vector illustration, not a screenshot: one picture for the overview, the
+/// gallery and the parameter pages. Reads the same constants as the theme
+/// compiler, from a theme with its saved changes or from the values being
+/// edited.
+/// </summary>
 internal sealed class DesktopPreview : FrameworkElement
 {
-    private ThemeOption? _option;
+    /// <summary>A theme constant in a mode (true: light), as the picture should show it.</summary>
+    private Func<string, bool, string?>? _constant;
+    private bool _bar;
     private bool _light = true;
     private bool _menuLight = true;
     public ImageSource? Wallpaper { get; set; }
@@ -20,10 +43,27 @@ internal sealed class DesktopPreview : FrameworkElement
     /// </summary>
     public IReadOnlyList<string>? MonitorItems { get; set; }
 
+    public PreviewFocus Part { get; set; }
+
+    /// <summary>
+    /// For values that change while a slider is dragged: a blurred wallpaper
+    /// not made yet is made a moment later, and the closest one is shown
+    /// meanwhile, instead of one new picture for every step.
+    /// </summary>
+    public bool QuickBlur { get; set; }
+
     // One cache for every preview: the gallery rebuilds its cards while the
     // user types in the search box, and all cards share a size and a wallpaper.
     private static readonly Dictionary<(int Width, int Radius), ImageSource> BlurredWallpapers = [];
     private static ImageSource? _blurredFrom;
+
+    /// <summary>Blur radii come in steps: a drag of the blur slider makes a few pictures, not sixty.</summary>
+    private const int BlurStep = 4;
+
+    private bool _blurPending;
+
+    /// <summary>Blurred wallpapers the last rendering would have liked to use (QuickBlur).</summary>
+    private readonly HashSet<(int Width, int Radius)> _wanted = [];
 
     private ImageSource BlurredWallpaper(double width, double blur)
     {
@@ -35,8 +75,39 @@ internal sealed class DesktopPreview : FrameworkElement
             BlurredWallpapers.Clear();
             _blurredFrom = Wallpaper;
         }
-        int radius = (int)Math.Clamp(Math.Round(blur), 0, 60);
+        int radius = (int)Math.Round(Math.Clamp(blur, 0, 60) / BlurStep) * BlurStep;
         if (BlurredWallpapers.TryGetValue((pixels, radius), out var cached)) return cached;
+        if (QuickBlur && BlurredWallpapers.Where(pair => pair.Key.Width == pixels)
+                .OrderBy(pair => Math.Abs(pair.Key.Radius - radius)).Select(pair => pair.Value).FirstOrDefault() is { } closest)
+        {
+            _wanted.Add((pixels, radius));
+            if (!_blurPending)
+            {
+                _blurPending = true;
+                Dispatcher.BeginInvoke(MakeWanted, DispatcherPriority.Background);
+            }
+            return closest;
+        }
+        return MakeBlurred(pixels, radius);
+    }
+
+    /// <summary>Once the slider rests a moment: the pictures the latest values need.</summary>
+    private void MakeWanted()
+    {
+        _blurPending = false;
+        if (!ReferenceEquals(_blurredFrom, Wallpaper)) return;
+        bool made = false;
+        foreach (var (pixels, radius) in _wanted.ToList())
+        {
+            if (BlurredWallpapers.ContainsKey((pixels, radius))) continue;
+            MakeBlurred(pixels, radius);
+            made = true;
+        }
+        if (made) InvalidateVisual();
+    }
+
+    private ImageSource MakeBlurred(int pixels, int radius)
+    {
         var visual = new DrawingVisual { Effect = new BlurEffect { Radius = radius, RenderingBias = RenderingBias.Performance } };
         using (var context = visual.RenderOpen())
             context.DrawRectangle(new ImageBrush(Wallpaper) { Stretch = Stretch.UniformToFill }, null, new Rect(-20, -20, pixels + 40, 400));
@@ -55,13 +126,30 @@ internal sealed class DesktopPreview : FrameworkElement
         IsHitTestVisible = false;
     }
 
+    /// <summary>A theme with its saved changes.</summary>
     public void Update(ThemeOption? option, bool light, bool? menuLight = null)
     {
-        _option = option;
+        _constant = option?.Theme is { } theme ? (name, mode) => theme.GetConstant(name, mode, option.Overrides) : null;
+        _bar = option?.IsBar == true;
         _light = light;
         _menuLight = menuLight ?? light;
         InvalidateVisual();
     }
+
+    /// <summary>Values by name, such as the ones being edited on a parameter page.</summary>
+    /// <param name="bar">The taskbar is the full-width bar (a theme without islands).</param>
+    public void Update(Func<string, bool, string?> constant, bool bar, bool light, bool menuLight)
+    {
+        _constant = constant;
+        _bar = bar;
+        _light = light;
+        _menuLight = menuLight;
+        InvalidateVisual();
+    }
+
+    /// <summary>A constant as the picture reads it: the taskbar's in the taskbar's mode, the menu's in its own.</summary>
+    internal string? Shown(string name) =>
+        _constant?.Invoke(name, name.StartsWith("menu", StringComparison.Ordinal) ? _menuLight : _light);
 
     /// <summary>The theme constants the picture is drawn from.</summary>
     private static readonly string[] Drawn =
@@ -75,14 +163,14 @@ internal sealed class DesktopPreview : FrameworkElement
         option.IsBar + "|" + string.Join("|", Drawn.Select(name => option.Theme?.GetConstant(name, light, option.Overrides)));
 
     private double Number(string key, bool light, double fallback) =>
-        double.TryParse(_option?.Theme?.GetConstant(key, light, _option.Overrides), NumberStyles.Float,
+        double.TryParse(_constant?.Invoke(key, light), NumberStyles.Float,
             CultureInfo.InvariantCulture, out var value) && double.IsFinite(value) ? value : fallback;
 
     private Color Tint(string key, bool light)
     {
         try
         {
-            return (Color)ColorConverter.ConvertFromString(_option?.Theme?.GetConstant(key, light, _option.Overrides)
+            return (Color)ColorConverter.ConvertFromString(_constant?.Invoke(key, light)
                 ?? (light ? "#F3F3F3" : "#202020"));
         }
         catch (Exception e) when (e is FormatException or NotSupportedException or ArgumentException)
@@ -91,15 +179,34 @@ internal sealed class DesktopPreview : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// The rows of the 640 × 360 scene to show. The taskbar and the menu are
+    /// shown larger, but never so large that the scene gets narrower than
+    /// 640: then more rows show (above the taskbar, around the menu).
+    /// </summary>
+    private (double Scale, double Top) Viewport()
+    {
+        if (Part == PreviewFocus.Desktop) return (ActualHeight / 360, 0);
+        var (top, rows) = Part == PreviewFocus.Taskbar ? (196.0, 164.0) : (14.0, 290.0);
+        double scale = Math.Min(ActualHeight / rows, ActualWidth / 640);
+        double shown = ActualHeight / scale;
+        double start = Part == PreviewFocus.Taskbar ? 360 - shown : top + rows / 2 - shown / 2;
+        return (scale, Math.Clamp(start, 0, Math.Max(0, 360 - shown)));
+    }
+
     protected override void OnRender(DrawingContext dc)
     {
         base.OnRender(dc);
         if (ActualWidth <= 0 || ActualHeight <= 0) return;
-        double scale = ActualHeight / 360;
+        _wanted.Clear();
+        var (scale, top) = Viewport();
         double sceneWidth = ActualWidth / scale;
         double side = (sceneWidth - 640) / 2;
+        // 16 scene units on the whole desktop, as before; 12 px on the larger views.
+        double corner = Part == PreviewFocus.Desktop ? 16 : 12 / scale;
         dc.PushTransform(new ScaleTransform(scale, scale));
-        dc.PushClip(new RectangleGeometry(new Rect(0, 0, sceneWidth, 360), 16, 16));
+        dc.PushTransform(new TranslateTransform(0, -top));
+        dc.PushClip(new RectangleGeometry(new Rect(0, top, sceneWidth, ActualHeight / scale), corner, corner));
         dc.PushTransform(new ScaleTransform(sceneWidth / 640, 1));
         // Identical wallpaper across options makes material differences comparable.
         dc.DrawRectangle(new LinearGradientBrush(Color.FromRgb(135, 164, 181), Color.FromRgb(47, 78, 106), 40), null,
@@ -132,30 +239,34 @@ internal sealed class DesktopPreview : FrameworkElement
             }
             dc.DrawRoundedRectangle(new SolidColorBrush(tint), new Pen(new SolidColorBrush(Color.FromArgb(90, 255, 255, 255)), 1), rect, radius, radius);
         }
-        var ink = new SolidColorBrush(_menuLight ? Color.FromArgb(150, 24, 39, 54) : Color.FromArgb(190, 242, 246, 250));
-        double menuRadius = Math.Clamp(Number("menuRadius", _menuLight, 20), 0, 40);
-        Glass(new Rect(182, 32, 276, 252), "menu", _menuLight, menuRadius);
-        dc.DrawRoundedRectangle(new SolidColorBrush(_menuLight ? Color.FromArgb(90, 255, 255, 255) : Color.FromArgb(70, 0, 0, 0)),
-            null, new Rect(201, 50, 238, 25), 8, 8);
-        dc.DrawEllipse(null, new Pen(ink, 1.5), new Point(215, 61), 4, 4);
-        dc.DrawLine(new Pen(ink, 1.5), new Point(218, 64), new Point(221, 67));
-        dc.DrawRoundedRectangle(ink, null, new Rect(230, 59, 100, 3), 1.5, 1.5);
-        dc.DrawRoundedRectangle(ink, null, new Rect(205, 91, 47, 4), 2, 2);
-        for (int i = 0; i < 12; i++)
+        // On the taskbar page the menu is closed.
+        if (Part != PreviewFocus.Taskbar)
         {
-            double x = 213 + (i % 6) * 39, y = 110 + (i / 6) * 46;
-            Icon(dc, i, x, y, 19);
-            dc.DrawRoundedRectangle(ink, null, new Rect(x - 3, y + 25, 25, 2), 1, 1);
-        }
-        dc.DrawRoundedRectangle(ink, null, new Rect(205, 210, 47, 4), 2, 2);
-        for (int i = 0; i < 2; i++)
-        {
-            dc.DrawRoundedRectangle(ink, null, new Rect(205 + i * 122, 231, 12, 15), 3, 3);
-            dc.DrawRoundedRectangle(ink, null, new Rect(224 + i * 122, 233, 60, 3), 1, 1);
-            dc.DrawRoundedRectangle(ink, null, new Rect(224 + i * 122, 242, 43, 2), 1, 1);
+            var ink = new SolidColorBrush(_menuLight ? Color.FromArgb(150, 24, 39, 54) : Color.FromArgb(190, 242, 246, 250));
+            double menuRadius = Math.Clamp(Number("menuRadius", _menuLight, 20), 0, 40);
+            Glass(new Rect(182, 32, 276, 252), "menu", _menuLight, menuRadius);
+            dc.DrawRoundedRectangle(new SolidColorBrush(_menuLight ? Color.FromArgb(90, 255, 255, 255) : Color.FromArgb(70, 0, 0, 0)),
+                null, new Rect(201, 50, 238, 25), 8, 8);
+            dc.DrawEllipse(null, new Pen(ink, 1.5), new Point(215, 61), 4, 4);
+            dc.DrawLine(new Pen(ink, 1.5), new Point(218, 64), new Point(221, 67));
+            dc.DrawRoundedRectangle(ink, null, new Rect(230, 59, 100, 3), 1.5, 1.5);
+            dc.DrawRoundedRectangle(ink, null, new Rect(205, 91, 47, 4), 2, 2);
+            for (int i = 0; i < 12; i++)
+            {
+                double x = 213 + (i % 6) * 39, y = 110 + (i / 6) * 46;
+                Icon(dc, i, x, y, 19);
+                dc.DrawRoundedRectangle(ink, null, new Rect(x - 3, y + 25, 25, 2), 1, 1);
+            }
+            dc.DrawRoundedRectangle(ink, null, new Rect(205, 210, 47, 4), 2, 2);
+            for (int i = 0; i < 2; i++)
+            {
+                dc.DrawRoundedRectangle(ink, null, new Rect(205 + i * 122, 231, 12, 15), 3, 3);
+                dc.DrawRoundedRectangle(ink, null, new Rect(224 + i * 122, 233, 60, 3), 1, 1);
+                dc.DrawRoundedRectangle(ink, null, new Rect(224 + i * 122, 242, 43, 2), 1, 1);
+            }
         }
         double radius = Math.Clamp(Number("radius", _light, 10), 0, 30);
-        bool bar = _option?.IsBar == true;
+        bool bar = _bar;
         double gap = bar ? 0 : Math.Clamp(Number("gap", _light, 4), 0, 8);
         double spacing = Math.Clamp(Number("buttonWidth", _light, 48), 40, 64) * .75;
         double size = Math.Clamp(Number("iconSize", _light, 28), 16, 40) * .75;
@@ -187,6 +298,7 @@ internal sealed class DesktopPreview : FrameworkElement
         dc.Pop();
         dc.Pop();
         dc.Pop();
+        dc.Pop();
     }
 
     private static void Icon(DrawingContext dc, int index, double x, double y, double size)
@@ -205,4 +317,47 @@ internal sealed class DesktopPreview : FrameworkElement
                 new Rect(x + size * .25, y + size * .32, size * .5, size * .36), 2, 2);
         }
     }
+}
+
+/// <summary>
+/// The preview of a parameter page: the desktop picture, larger where the
+/// page applies, labelled as an illustration and with the mode it shows.
+/// </summary>
+internal sealed class ParameterPreview : Grid
+{
+    private readonly TextBlock _mode;
+
+    public ParameterPreview(PreviewFocus focus)
+    {
+        Picture = new DesktopPreview
+        {
+            Part = focus, QuickBlur = true, Height = focus == PreviewFocus.StartMenu ? 220 : 150,
+        };
+        Margin = new Thickness(0, 0, 0, 12);
+        Children.Add(Picture);
+        Children.Add(Pill(Label("效果示意"), HorizontalAlignment.Left));
+        Children.Add(Pill(_mode = Label(""), HorizontalAlignment.Right));
+        ToolTip = "布局与材质示意，按当前编辑的数值绘制；实际效果以桌面为准。";
+        AutomationProperties.SetName(this, "效果示意预览");
+        Loaded += async (_, _) =>
+        {
+            if (Picture.Wallpaper != null) return;
+            var wallpaper = await WallpaperPreview.LoadAsync();
+            await Dispatcher.InvokeAsync(() => { Picture.Wallpaper = wallpaper.Image; Picture.InvalidateVisual(); });
+        };
+    }
+
+    public DesktopPreview Picture { get; }
+
+    public void ShowMode(bool light) => _mode.Text = light ? "浅色" : "深色";
+
+    // Readable on any wallpaper: light text on a dark, translucent label.
+    private static TextBlock Label(string text) => new() { Text = text, FontSize = 11, Foreground = Brushes.White };
+
+    private static Border Pill(TextBlock text, HorizontalAlignment side) => new()
+    {
+        Child = text, CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 1, 6, 2),
+        Background = new SolidColorBrush(Color.FromArgb(110, 0, 0, 0)), Margin = new Thickness(10, 8, 10, 0),
+        HorizontalAlignment = side, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false,
+    };
 }

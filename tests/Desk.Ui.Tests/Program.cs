@@ -135,6 +135,18 @@ internal static class Program
             Dispatcher.PushFrame(frame);
             Layout(root);
             Render(root, Path.Combine(output, $"{scope}-{(light ? "light" : "dark")}-{width}-advanced.png"));
+            // One picture for every page: the desktop preview, drawn from the
+            // values being edited, in the mode being edited.
+            var picture = Descendants(root).OfType<DesktopPreview>().Single();
+            Check(picture.Part == (scope == ParameterScope.Taskbar ? PreviewFocus.Taskbar : PreviewFocus.StartMenu), "The preview shows the page's part of the desktop");
+            Check(picture.Shown(prefix + "Opacity") == editor.GetConstant(prefix + "Opacity", light), "The preview draws the values on the page");
+            opacity.Value = .7;
+            Check(picture.Shown(prefix + "Opacity") == "0.3", "The preview follows the slider");
+            Find<RadioButton>(root, "Mode." + scope + "." + (light ? "dark" : "light")).IsChecked = true;
+            Layout(root);
+            Check(picture.Shown(prefix + "Opacity") == editor.GetConstant(prefix + "Opacity", !light), "The preview draws the mode being edited");
+            Find<RadioButton>(root, "Mode." + scope + "." + (light ? "light" : "dark")).IsChecked = true;
+            Layout(root);
             CheckIcons(root, scope.ToString());
             Console.WriteLine($"PASS {scope}, {(light ? "light" : "dark")}, {width}px: preset, slider, undo, reset, layout, icons");
         }
