@@ -52,27 +52,22 @@
         </Border>
 
         <!--
-            The page title sits in the header, outside the scrolling area, so it
-            stays put while a long page scrolls. The pane folds to icons when the
-            window gets narrow (see MainWindow.xaml.cs).
+            No header above the pages: each page starts with its own large
+            title, and the selected item in the pane says where you are. The
+            page's name is also in the title bar ("Desk · 任务栏"), which stays
+            readable when the pane folds to icons on a narrow window (see
+            MainWindow.xaml.cs).
         -->
         <ui:NavigationView
             x:Name="Navigation"
             Grid.Row="2"
-            Padding="28,0,28,32"
-            BreadcrumbBar="{Binding ElementName=PageTitle}"
+            Padding="28,20,28,32"
             IsBackButtonVisible="Collapsed"
             IsPaneToggleVisible="False"
             OpenPaneLength="200"
             PaneDisplayMode="Left"
             TitleBar="{Binding ElementName=TitleBar, Mode=OneWay}"
             Transition="FadeInWithSlide">
-            <ui:NavigationView.Header>
-                <ui:BreadcrumbBar
-                    x:Name="PageTitle"
-                    MaxWidth="{StaticResource Desk.ContentMaxWidth}"
-                    Margin="28,16,28,20" />
-            </ui:NavigationView.Header>
             <ui:NavigationView.MenuItems>
                 <ui:NavigationViewItem
                     x:Name="NavHome"

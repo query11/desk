@@ -45,6 +45,7 @@ public partial class MainWindow : FluentWindow
         Navigation.Navigated += (_, e) =>
         {
             CurrentPage = e.Page?.GetType();
+            ShowPageName((e.Page as System.Windows.Controls.Page)?.Title);
             ScrollPageToTop();
             // Again once the new page is laid out, in case it wasn't in place yet.
             Dispatcher.BeginInvoke(ScrollPageToTop, System.Windows.Threading.DispatcherPriority.Loaded);
@@ -53,6 +54,17 @@ public partial class MainWindow : FluentWindow
 
     /// <summary>See <see cref="UiHost.DismissedConflicts"/>.</summary>
     internal string? DismissedConflicts { get; set; }
+
+    /// <summary>
+    /// The page's name in the title bar and the window title: there is no
+    /// header above the pages, and a narrow window shows the pane as icons.
+    /// </summary>
+    private void ShowPageName(string? page)
+    {
+        string title = string.IsNullOrEmpty(page) ? "Desk" : "Desk · " + page;
+        Title = title;
+        TitleBar.Title = title;
+    }
 
     private void ScrollPageToTop() => FindScrollViewer(Navigation)?.ScrollToHome();
 

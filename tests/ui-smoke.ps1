@@ -253,7 +253,8 @@ function Start-Desk([int]$light) {
     $window = Wait-Until {
         $condition = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
         $found = $A::RootElement.FindAll($Tree::Children, $condition)
-        foreach ($w in $found) { if ($w.Current.Name -eq 'Desk' -and $w.Current.ClassName -notmatch 'Tray') { return $w } }
+        # "Desk", then "Desk · <page>" once a page is open.
+        foreach ($w in $found) { if ($w.Current.Name -like 'Desk*' -and $w.Current.ClassName -notmatch 'Tray') { return $w } }
     } 30
     if (-not $window) { throw 'The settings window did not open' }
     $box = $window.Current.BoundingRectangle
@@ -284,10 +285,15 @@ function Open-Page($window, [int]$index) {
     if (-not $item) { Write-Tree $window }
     if (-not (Click $item "navigation item $($navIds[$index])")) { return $false }
     Start-Sleep -Milliseconds 900
-    return Assert-Title $window $pages[$index]
+    if (-not (Assert-Title $window $pages[$index])) { return $false }
+    # No header above the pages: the title bar names the page, also when
+    # the pane is only icons.
+    $name = $window.Current.Name
+    if ($name -ne "Desk · $($pages[$index])") { Fail "the title bar says '$name' on page '$($pages[$index])'" }
+    return $true
 }
 
-# Check the visible page heading, independently of the smaller breadcrumb.
+# Check the visible page heading.
 function Assert-Title($window, [string]$expected) {
     $expected = $headings[$expected]
     $left = $window.Current.BoundingRectangle.Left + 40
@@ -296,10 +302,15 @@ function Assert-Title($window, [string]$expected) {
         $c.BoundingRectangle.Left -gt $left }.GetNewClosure()
     $title = Wait-Until { Find-Element $window $isTitle } 5
     if (-not $title) { Fail "page title '$expected' not shown"; Write-Tree $window; return $false }
-    # A page opens at its top: the heading sits below the pinned breadcrumb,
-    # not scrolled out of view by the position the previous page was left at.
-    $top = [int]($title.Current.BoundingRectangle.Top - $window.Current.BoundingRectangle.Top)
-    if ($top -lt 150) { Fail "page '$expected' opened scrolled (heading at $top)" }
+    # A page opens at its top: the heading is at the top of the content area,
+    # not scrolled up out of view by the position the previous page was left
+    # at. (With the header gone, the heading is the first thing in there.)
+    $origin = $window.Current.BoundingRectangle.Top
+    $top = [int]($title.Current.BoundingRectangle.Top - $origin)
+    $content = Find-Id $window 'PART_NavigationViewContentPresenter'
+    $start = 60
+    if ($content) { $start = [int]($content.Current.BoundingRectangle.Top - $origin) }
+    if ($top -lt $start - 2) { Fail "page '$expected' opened scrolled (heading at $top, content area from $start)" }
     return $true
 }
 

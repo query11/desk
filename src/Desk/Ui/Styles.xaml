@@ -13,7 +13,7 @@
 
     <sys:Double x:Key="Desk.ContentMaxWidth">1000</sys:Double>
 
-    <!--  Pages: the scrolling column and the pinned title above it share a width.  -->
+    <!--  Pages: one centered column of at most this width.  -->
     <Style x:Key="Desk.Page" TargetType="StackPanel">
         <Setter Property="MaxWidth" Value="{StaticResource Desk.ContentMaxWidth}" />
     </Style>
