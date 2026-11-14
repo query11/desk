@@ -364,6 +364,25 @@ function Test-Reopened($window, [int]$x, [int]$y, [int]$width, [int]$height, [st
     if (-not (Wait-Until { Find-Shown $window $heading } 5)) { Fail "the window did not reopen on the page it was closed on ($page)" }
 }
 
+# The scroll pattern of the scrolling area an element is in (the page's).
+function Get-Scroller($element) {
+    $node = $element
+    while ($node -ne $null) {
+        [object]$pattern = $null
+        try {
+            if ($node.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$pattern) -and
+                $pattern.Current.VerticallyScrollable) { return $pattern }
+        } catch { }
+        $node = $Raw.GetParent($node)
+    }
+    return $null
+}
+
+function Get-ScrollPercent($scroller) {
+    if (-not $scroller) { return 'n/a' }
+    return [Math]::Round($scroller.Current.VerticalScrollPercent, 1)
+}
+
 # Clicks a button that opens a confirmation, checks the dialog, then answers it.
 function Confirm-Dialog($window, [string]$button, [string]$title, [string]$answer, [string]$shot) {
     if (-not (Click (Find-Id $window $button) $button)) { return }
@@ -403,12 +422,42 @@ if ($maintenance -and $maintenance.TryGetCurrentPattern([System.Windows.Automati
     $expand.Expand()
     Start-Sleep -Milliseconds 300
 } else { Fail 'Maintenance expander not found' }
-Click (Find-Id $window 'ReapplyButton') 'ReapplyButton' | Out-Null
+# Looked into, not checked: after 重新应用 through UI Automation the page was
+# once seen scrolled to its bottom. The log shows where the page is before
+# and after, through UI Automation and with a real mouse click.
+$reapply = Find-Id $window 'ReapplyButton'
+$scroller = Get-Scroller $reapply
+$scrollBefore = Get-ScrollPercent $scroller
+Click $reapply 'ReapplyButton' | Out-Null
 if (-not (Wait-Until { Find-Name $window '已重新应用' } 5)) { Fail 'no toast after 重新应用' }
 Start-Sleep -Milliseconds 400
+Write-Host "Page scrolled to $scrollBefore% before 重新应用 through UI Automation, $(Get-ScrollPercent $scroller)% after"
 Save-Shot $window 'light-toast'
 Confirm-Dialog $window 'RestartExplorerButton' '重启资源管理器？' '取消' 'light-dialog-restart'
 if (-not (Wait-Until { -not (Find-Name $window '重启资源管理器？') } 5)) { Fail 'the restart dialog did not close on 取消' }
+if ($scroller -and $scrollBefore -ne 'n/a') {
+    # A real click needs the button in view: the first position, from the
+    # middle down, that shows it whole (but not the very bottom, to see a jump).
+    $frame = $window.Current.BoundingRectangle
+    $start = $null
+    foreach ($percent in 40, 50, 60, 70, 80, 90) {
+        try { $scroller.SetScrollPercent(-1, $percent) } catch { break }
+        Start-Sleep -Milliseconds 300
+        $box = $reapply.Current.BoundingRectangle
+        if (-not $reapply.Current.IsOffscreen -and $box.Top -gt $frame.Top + 60 -and $box.Bottom -lt $frame.Bottom - 8) { $start = $percent; break }
+    }
+    if ($start -ne $null) {
+        $box = $reapply.Current.BoundingRectangle
+        [Native]::SetForegroundWindow([IntPtr]$window.Current.NativeWindowHandle) | Out-Null
+        [Native]::SetCursorPos([int]($box.Left + $box.Width / 2), [int]($box.Top + $box.Height / 2)) | Out-Null
+        [Native]::mouse_event(2, 0, 0, 0, [IntPtr]::Zero)
+        [Native]::mouse_event(4, 0, 0, 0, [IntPtr]::Zero)
+        Start-Sleep -Milliseconds 900
+        Write-Host "Page scrolled to $(Get-ScrollPercent $scroller)% after 重新应用 with a real click from $start%"
+    } else {
+        Write-Host 'No real click on 重新应用: no scroll position shows the button whole'
+    }
+}
 
 # A status tile opens its page.
 Click (Find-Id $window 'TaskbarTile') 'TaskbarTile' | Out-Null
