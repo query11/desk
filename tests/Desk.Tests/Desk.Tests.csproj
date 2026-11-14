@@ -30,6 +30,7 @@
     <Compile Include="..\..\src\Desk\Log.cs" Link="Production\Log.cs" />
     <Compile Include="..\..\src\Desk\NativeMethods.cs" Link="Production\NativeMethods.cs" />
     <Compile Include="..\..\src\Desk\OverviewStatus.cs" Link="Production\OverviewStatus.cs" />
+    <Compile Include="..\..\src\Desk\ParameterValue.cs" Link="Production\ParameterValue.cs" />
     <Compile Include="..\..\src\Desk\Paths.cs" Link="Production\Paths.cs" />
     <Compile Include="..\..\src\Desk\RestartGuard.cs" Link="Production\RestartGuard.cs" />
     <Compile Include="..\..\src\Desk\RuntimeWriter.cs" Link="Production\RuntimeWriter.cs" />

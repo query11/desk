@@ -1,4 +1,3 @@
-using System.Globalization;
 using Wpf.Ui.Controls;
 
 namespace Desk.Ui;
@@ -13,9 +12,13 @@ internal sealed record ParameterInfo(
     double Maximum,
     double Step,
     bool PerMode,
-    Func<double, string> Format,
+    ParameterUnit Unit,
     bool Advanced = false,
-    bool Inverted = false);
+    bool Inverted = false)
+{
+    /// <summary>A value in the slider's units, as shown next to it.</summary>
+    public string Format(double value) => ParameterValue.Format(value, Unit);
+}
 
 /// <summary>
 /// The constants of the built-in themes that can be tuned. Material values
@@ -23,6 +26,10 @@ internal sealed record ParameterInfo(
 /// </summary>
 internal static class Parameters
 {
+    private const ParameterUnit Pixels = ParameterUnit.Pixels;
+    private const ParameterUnit Plain = ParameterUnit.Plain;
+    private const ParameterUnit Percent = ParameterUnit.Percent;
+
     public static readonly IReadOnlyList<ParameterInfo> Taskbar =
     [
         new("iconSize", "图标大小", "只调整图标，推荐 28 px。", SymbolRegular.Apps24, 24, 36, 2, false, Pixels),
@@ -45,10 +52,4 @@ internal static class Parameters
         new("menuSaturation", "色彩饱和度", "背景颜色的鲜艳程度。", SymbolRegular.Drop24, 0.5, 2.5, 0.05, false, Percent, Advanced: true),
         new("menuNoise", "颗粒感", "亚克力表面的细微颗粒，通常只需要少量。", SymbolRegular.Sparkle24, 0, 0.1, 0.005, false, Percent, Advanced: true),
     ];
-
-    private static string Pixels(double value) => value.ToString("0", CultureInfo.InvariantCulture) + " px";
-
-    private static string Plain(double value) => value.ToString("0", CultureInfo.InvariantCulture);
-
-    private static string Percent(double value) => (value * 100).ToString("0.#", CultureInfo.InvariantCulture) + "%";
 }

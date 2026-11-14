@@ -115,10 +115,30 @@ internal static class Program
             Find<RadioButton>(root, "Mode." + scope + "." + (light ? "light" : "dark")).IsChecked = true;
             Layout(root);
             Check(!hint.IsOpen && Math.Abs(opacity.Value - (1 - shownTint)) < .00001, "Back on the shown mode, its value again");
+            // The number next to a slider can be typed: kept in the range and on
+            // the slider's steps, in its units; anything else puts it back.
+            ParameterCard Card(string name) => Descendants(root).OfType<ParameterCard>().Single(c => c.Info.Name == name);
+            var tintBox = Find<TextBox>(root, "Value." + tint);
+            tintBox.Text = "35 %";
+            Card(tint).Commit();
+            Check(Math.Abs(opacity.Value - .35) < .00001 && tintBox.Text == "35%" &&
+                Math.Abs(editor.GetParameter(scope, tint, light)!.Value - .65) < .00001, "A typed transparency sets the tint the other way round");
+            tintBox.Text = "１２０％";
+            Card(tint).Commit();
+            Check(Math.Abs(opacity.Value - 1) < .00001 && tintBox.Text == "100%", "A typed value stays within the range (full-width input too)");
+            tintBox.Text = "很透";
+            Card(tint).Commit();
+            Check(Math.Abs(opacity.Value - 1) < .00001 && tintBox.Text == "100%", "Something that isn't a number puts the value back");
+            string corner = scope == ParameterScope.Taskbar ? "radius" : "menuRadius";
+            var cornerBox = Find<TextBox>(root, "Value." + corner);
+            cornerBox.Text = "12.6px";
+            Card(corner).Commit();
+            Check(editor.GetParameter(scope, corner, light) == 13 && cornerBox.Text == "13 px", "Typed pixels land on the slider's steps");
+            Check(AutomationProperties.GetName(cornerBox) == "圆角的数值", "The box says what it is for");
             clear.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Layout(root);
             // Interactive controls must stay inside the available column at both widths.
-            foreach (var control in Descendants(root).OfType<FrameworkElement>().Where(e => e is Slider or ButtonBase))
+            foreach (var control in Descendants(root).OfType<FrameworkElement>().Where(e => e is Slider or ButtonBase or TextBox))
             {
                 if (control.ActualWidth <= 0 || !VisibleInTree(control)) continue;
                 var bounds = control.TransformToAncestor(root).TransformBounds(new Rect(control.RenderSize));

@@ -1,14 +1,16 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using Wpf.Ui.Controls;
 
 namespace Desk.Ui;
 
-/// <summary>A card with a slider for one theme parameter.</summary>
+/// <summary>A card with a slider for one theme parameter, and its number to type in.</summary>
 internal sealed class ParameterCard : CardControl
 {
     private readonly Slider _slider;
-    private readonly System.Windows.Controls.TextBlock _value;
+    private readonly System.Windows.Controls.TextBox _value;
     private readonly Wpf.Ui.Controls.Button _reset;
     private bool _updating;
 
@@ -24,15 +26,22 @@ internal sealed class ParameterCard : CardControl
         ToolTip = info.Description;
         MinHeight = 56;
 
-        _value = new System.Windows.Controls.TextBlock
+        // The number can be typed: Enter or leaving the box takes it, Esc
+        // goes back. It is in the slider's units, with them ("28 px", "35%").
+        _value = new System.Windows.Controls.TextBox
         {
-            MinWidth = 48,
+            Width = 72,
             Margin = new Thickness(0, 0, 8, 0),
             VerticalAlignment = VerticalAlignment.Center,
             TextAlignment = TextAlignment.Right,
+            MaxLength = 12,
         };
         // Equal-width digits: the number doesn't jitter while dragging.
         System.Windows.Documents.Typography.SetNumeralAlignment(_value, FontNumeralAlignment.Tabular);
+        AutomationProperties.SetAutomationId(_value, "Value." + info.Name);
+        AutomationProperties.SetName(_value, info.Title + "的数值");
+        AutomationProperties.SetHelpText(_value,
+            $"可以输入 {info.Format(info.Minimum)} 到 {info.Format(info.Maximum)} 之间的数值，按回车确认。");
         _slider = new Slider
         {
             Width = 220,
@@ -46,12 +55,19 @@ internal sealed class ParameterCard : CardControl
         };
         _slider.ValueChanged += (_, e) =>
         {
-            _value.Text = info.Format(e.NewValue);
+            ShowNumber(e.NewValue);
             if (!_updating)
             {
                 ValueChanged?.Invoke(this, Info.Inverted ? 1 - e.NewValue : e.NewValue);
             }
         };
+        _value.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) { Commit(); _value.SelectAll(); e.Handled = true; }
+            else if (e.Key == Key.Escape) { _value.Text = info.Format(_slider.Value); _value.SelectAll(); e.Handled = true; }
+        };
+        _value.LostKeyboardFocus += (_, _) => Commit();
+        _value.GotKeyboardFocus += (_, _) => _value.SelectAll();
 
         var panel = new StackPanel { Orientation = Orientation.Horizontal };
         panel.Children.Add(_value);
@@ -64,18 +80,19 @@ internal sealed class ParameterCard : CardControl
             Appearance = ControlAppearance.Transparent,
         };
         _reset.Click += (_, _) => ResetRequested?.Invoke(this);
-        System.Windows.Automation.AutomationProperties.SetAutomationId(_reset, "Reset." + info.Name);
-        System.Windows.Automation.AutomationProperties.SetName(_reset, "恢复" + info.Title + "默认值");
+        AutomationProperties.SetAutomationId(_reset, "Reset." + info.Name);
+        AutomationProperties.SetName(_reset, "恢复" + info.Title + "默认值");
         panel.Children.Add(_reset);
         Content = panel;
-        SizeChanged += (_, _) => _slider.Width = Math.Clamp(ActualWidth * .27, 88, 190);
-        System.Windows.Automation.AutomationProperties.SetName(_slider, info.Title);
-        System.Windows.Automation.AutomationProperties.SetAutomationId(_slider, "Parameter." + info.Name);
+        // The box keeps its width; the slider gives way on a narrow page.
+        SizeChanged += (_, _) => _slider.Width = Math.Clamp(ActualWidth * .27, 72, 190);
+        AutomationProperties.SetName(_slider, info.Title);
+        AutomationProperties.SetAutomationId(_slider, "Parameter." + info.Name);
     }
 
     public ParameterInfo Info { get; }
 
-    /// <summary>Raised when the user moves the slider (not for <see cref="Show"/>).</summary>
+    /// <summary>Raised when the user moves the slider or types a number (not for <see cref="Show"/>).</summary>
     public event Action<ParameterCard, double>? ValueChanged;
     public event Action<ParameterCard>? ResetRequested;
     public void ShowReset(bool changed) => _reset.IsEnabled = changed;
@@ -88,11 +105,36 @@ internal sealed class ParameterCard : CardControl
         {
             double shown = Info.Inverted ? 1 - value : value;
             _slider.Value = Math.Clamp(shown, Info.Minimum, Info.Maximum);
-            _value.Text = Info.Format(shown);
+            ShowNumber(shown);
         }
         finally
         {
             _updating = false;
+        }
+    }
+
+    /// <summary>The number next to the slider, unless the user is typing one.</summary>
+    private void ShowNumber(double shown)
+    {
+        if (!_value.IsKeyboardFocused) _value.Text = Info.Format(shown);
+    }
+
+    /// <summary>
+    /// Takes the typed number: kept within the range and on the slider's
+    /// steps; anything that isn't a number puts the current value back.
+    /// </summary>
+    internal void Commit()
+    {
+        if (!ParameterValue.TryParse(_value.Text, Info.Unit, out double typed))
+        {
+            _value.Text = Info.Format(_slider.Value);
+            return;
+        }
+        double shown = ParameterValue.Settle(typed, Info.Minimum, Info.Maximum, Info.Step);
+        _value.Text = Info.Format(shown);
+        if (Math.Abs(shown - _slider.Value) > Info.Step / 1000)
+        {
+            _slider.Value = shown;
         }
     }
 }
