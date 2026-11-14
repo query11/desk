@@ -32,10 +32,12 @@ internal sealed class DisplayMap : Panel
             Children.Clear();
             foreach (var display in displays)
             {
+                // Filling its screen's place: WPF UI's buttons otherwise keep to their content.
                 var button = new Wpf.Ui.Controls.Button
                 {
-                    Tag = display, Padding = new Thickness(4), HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    VerticalContentAlignment = VerticalAlignment.Stretch, MinWidth = 0, MinHeight = 0,
+                    Tag = display, Padding = new Thickness(4), MinWidth = 0, MinHeight = 0,
+                    HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch,
                 };
                 AutomationProperties.SetAutomationId(button, "Displays.Screen." + display.Id);
                 button.Click += (_, _) => Chosen?.Invoke(display);
