@@ -3,7 +3,9 @@ using System.Windows.Forms;
 
 namespace Desk;
 
-internal sealed record DesktopDisplay(string Id, string Device, string Name, int Width, int Height, bool Primary)
+/// <param name="Left">Where the screen is in the desktop's arrangement, in pixels, with <paramref name="Top"/>.</param>
+internal sealed record DesktopDisplay(string Id, string Device, string Name, int Width, int Height, bool Primary,
+    int Left = 0, int Top = 0)
 {
     public string Label => $"{Name} · {Width} × {Height}" + (Primary ? " · 主屏" : "");
 }
@@ -15,6 +17,9 @@ internal interface IDisplaySettings
     DisplayPreferences GetDisplayPreferences(string id);
     void UpdateDisplay(string id, Action<DisplayPreferences> change);
     IAppearanceEditor GetDisplayEditor(string id);
+
+    /// <summary>The global settings a display follows where it has no choice of its own.</summary>
+    DisplayDefaults DisplayDefaults { get; }
 }
 
 internal static class DisplayTopology
@@ -49,7 +54,8 @@ internal static class DisplayTopology
         bool found = EnumDisplayDevicesW(screen.DeviceName, 0, ref info, 1);
         string id = found && !string.IsNullOrEmpty(info.DeviceId) ? info.DeviceId : screen.DeviceName;
         string name = found && !string.IsNullOrWhiteSpace(info.DeviceString) ? info.DeviceString : "显示器 " + (index + 1);
-        return new DesktopDisplay(id, screen.DeviceName, name, screen.Bounds.Width, screen.Bounds.Height, screen.Primary);
+        return new DesktopDisplay(id, screen.DeviceName, name, screen.Bounds.Width, screen.Bounds.Height, screen.Primary,
+            screen.Bounds.Left, screen.Bounds.Top);
     }).ToList();
 
     public static string DeviceForWindow(IntPtr window)

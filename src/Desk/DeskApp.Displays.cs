@@ -26,6 +26,8 @@ internal sealed partial class DeskApp : IDisplaySettings
         Apply(); StateChanged?.Invoke();
     }
     public IAppearanceEditor GetDisplayEditor(string id) => new DisplayEditor(this, id);
+    public DisplayDefaults DisplayDefaults => new(_settings.ShowMonitor, _settings.MonitorNetwork, _settings.MonitorCpu,
+        _settings.MonitorMemory, _settings.MaximizeMode);
 
     private sealed class DisplayEditor(DeskApp app, string id) : IAppearanceEditor
     {

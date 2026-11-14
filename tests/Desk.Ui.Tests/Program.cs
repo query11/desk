@@ -374,6 +374,26 @@ internal static class Program
             Check(Find<ComboBox>(root, "Displays.Maximize").SelectedIndex == 2, "Return restores primary behavior");
             Check(Find<ComboBox>(root, "Displays.show").SelectedIndex == 2 && Find<ComboBox>(root, "Displays.cpu").SelectedIndex == 0, "Info island choices return, untouched ones follow the global setting");
             Check(service.GetDisplayPreferences("B").MaximizeMode == MaximizeMode.Merge, "Secondary behavior retained");
+            // "跟随全局" says what the global setting is now.
+            string First(string id) => (string)((ComboBoxItem)Find<ComboBox>(root, id).Items[0]).Content;
+            Check(First("Displays.show") == "跟随全局（显示）" && First("Displays.memory") == "跟随全局（隐藏）", "Following the global setting names its value");
+            Check(First("Displays.Maximize") == "跟随全局（恢复成整条任务栏）", "Following the global maximize behavior names it");
+            // The screens as arranged: click one to adjust it; the main one and those with own settings are marked.
+            var screenA = Find<Wpf.Ui.Controls.Button>(root, "Displays.Screen.A");
+            var screenB = Find<Wpf.Ui.Controls.Button>(root, "Displays.Screen.B");
+            var placeA = screenA.TransformToAncestor(root).TransformBounds(new Rect(screenA.RenderSize));
+            var placeB = screenB.TransformToAncestor(root).TransformBounds(new Rect(screenB.RenderSize));
+            Check(placeA.Right <= placeB.Left + 1 && placeA.Width > placeB.Width && placeB.Top > placeA.Top, "The picture follows the arrangement");
+            Check(screenA.Appearance == Wpf.Ui.Controls.ControlAppearance.Primary, "The screen being adjusted is marked");
+            Check(AutomationProperties.GetName(screenA).Contains("主屏") && AutomationProperties.GetName(screenA).Contains("独立设置") &&
+                AutomationProperties.GetName(screenB).Contains("独立设置"), "Main screen and own settings are marked");
+            screenB.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Layout(root);
+            Check(screens.SelectedIndex == 1 && Find<ComboBox>(root, "Displays.Maximize").SelectedIndex == 1, "Clicking a screen adjusts it");
+            Check(ReferenceEquals(screenB, Find<Wpf.Ui.Controls.Button>(root, "Displays.Screen.B")) &&
+                screenB.Appearance == Wpf.Ui.Controls.ControlAppearance.Primary, "The picture keeps its buttons and marks the new choice");
+            screens.SelectedIndex = 0;
+            Layout(root);
             var displayFrame = new DispatcherFrame();
             var displayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
             displayTimer.Tick += (_, _) => { displayTimer.Stop(); displayFrame.Continue = false; };
@@ -387,7 +407,20 @@ internal static class Program
                 Check(bounds.Left >= -1 && bounds.Right <= width + 1, "Display control fits available width");
             }
             page.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
-            Console.WriteLine($"PASS displays, {(light ? "light" : "dark")}, {width}px: per-screen selection, independent toggles, behavior, layout");
+
+            // One screen: its name instead of a list that can't open, and no picture.
+            var lone = new Desk.Ui.Pages.DisplaysPage(new MemoryDisplays(light, single: true));
+            var loneContent = (FrameworkElement)lone.Content;
+            lone.Content = null;
+            var loneRoot = new Border { Width = width, Padding = new Thickness(24), Child = loneContent };
+            lone.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            Layout(loneRoot);
+            Check(Find<ComboBox>(loneRoot, "Displays.Select").Visibility == Visibility.Collapsed &&
+                Find<DisplayMap>(loneRoot, "Displays.Map").Visibility == Visibility.Collapsed, "One screen: nothing to choose from");
+            var name = Find<TextBlock>(loneRoot, "Displays.Single");
+            Check(name.Visibility == Visibility.Visible && name.Text == "主显示器 · 3120 × 2080 · 主屏", "One screen: its name and size");
+            lone.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+            Console.WriteLine($"PASS displays, {(light ? "light" : "dark")}, {width}px: per-screen selection, independent toggles, behavior, global values, screen map, one screen, layout");
         }
         if (!args.Contains("--shell-only"))
         {
@@ -486,14 +519,18 @@ internal static class Program
         public void ResetThemeAdjustment(string id, string key) => throw new NotSupportedException();
     }
 
-    private sealed class MemoryDisplays(bool light) : IDisplaySettings
+    private sealed class MemoryDisplays(bool light, bool single = false) : IDisplaySettings
     {
         private readonly Dictionary<string, DisplayPreferences> _preferences = new() { ["A"] = new(), ["B"] = new() };
         public event Action? StateChanged;
-        public IReadOnlyList<DesktopDisplay> GetDisplays() => [new("A", "DISPLAY1", "主显示器", 3120, 2080, true), new("B", "DISPLAY2", "副显示器", 1920, 1080, false)];
+        // A large main screen with a smaller one to its right, its top lower down.
+        public IReadOnlyList<DesktopDisplay> GetDisplays() => single
+            ? [new("A", "DISPLAY1", "主显示器", 3120, 2080, true)]
+            : [new("A", "DISPLAY1", "主显示器", 3120, 2080, true), new("B", "DISPLAY2", "副显示器", 1920, 1080, false, 3120, 400)];
         public DisplayPreferences GetDisplayPreferences(string id) => _preferences[id];
         public void UpdateDisplay(string id, Action<DisplayPreferences> change) { change(_preferences[id]); StateChanged?.Invoke(); }
         public IAppearanceEditor GetDisplayEditor(string id) => new MemoryEditor(light);
+        public DisplayDefaults DisplayDefaults { get; } = new(true, true, true, false, MaximizeMode.Merge);
     }
 
     /// <summary>The overrides of one theme in memory, edited the way Desk edits them (OverrideEdits).</summary>

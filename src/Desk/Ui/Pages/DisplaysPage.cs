@@ -13,10 +13,12 @@ namespace Desk.Ui.Pages;
 /// </summary>
 public sealed class DisplaysPage : Page
 {
-    private static readonly string[] Inherit = ["跟随全局", "显示", "隐藏"];
-
     private readonly IDisplaySettings _app;
     private readonly ComboBox _screens = new() { DisplayMemberPath = "Label", HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly DisplayMap _map = new() { Margin = new Thickness(0, 0, 0, 12) };
+
+    // With one screen there is nothing to choose: its name instead of a list that can't open.
+    private readonly TextBlock _single = new() { FontSize = 16, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _screensCaption = new() { Margin = new Thickness(2, 6, 0, 16) };
     private readonly ToggleSwitch _enabled = new();
     private readonly ComboBox _maximize = new() { MinWidth = 200 };
@@ -48,7 +50,9 @@ public sealed class DisplaysPage : Page
         page.Children.Add(new TextBlock { Text = "每一块屏幕，都合适", Style = (Style)FindResource("Desk.PageTitle") });
         page.Children.Add(new TextBlock { Text = "为某一块屏幕单独调整任务栏的尺寸、材质和信息岛。没有单独设置的屏幕使用全局外观。", Style = (Style)FindResource("Desk.Lead") });
 
+        page.Children.Add(_map);
         page.Children.Add(_screens);
+        page.Children.Add(_single);
         _screensCaption.SetResourceReference(StyleProperty, "Desk.Caption");
         page.Children.Add(_screensCaption);
         page.Children.Add(Card(SymbolRegular.Options24, "为这块屏幕使用独立设置",
@@ -56,7 +60,8 @@ public sealed class DisplaysPage : Page
         page.Children.Add(_options);
 
         _options.Children.Add(new TextBlock { Text = "行为", Style = (Style)FindResource("Desk.SectionHeader") });
-        _maximize.ItemsSource = new[] { "跟随全局", "恢复成整条任务栏", "保持浮岛" };
+        // "跟随全局" says what that is now: see RefreshValues.
+        foreach (string choice in new[] { "跟随全局", "恢复成整条任务栏", "保持浮岛" }) _maximize.Items.Add(new ComboBoxItem { Content = choice });
         _options.Children.Add(Card(SymbolRegular.Maximize24, "窗口最大化时", "这块屏幕上有窗口铺满时，任务栏怎么显示。", _maximize));
 
         _options.Children.Add(new TextBlock { Text = "左侧信息岛", Style = (Style)FindResource("Desk.SectionHeader") });
@@ -68,7 +73,8 @@ public sealed class DisplaysPage : Page
             ("内存", "内存占用。", SymbolRegular.Ram20, "memory"),
         })
         {
-            var box = new ComboBox { MinWidth = 140, ItemsSource = Inherit };
+            var box = new ComboBox { MinWidth = 160 };
+            foreach (string choice in new[] { "跟随全局", "显示", "隐藏" }) box.Items.Add(new ComboBoxItem { Content = choice });
             box.SelectionChanged += (_, _) =>
             {
                 bool? value = box.SelectedIndex switch { 1 => true, 2 => false, _ => null };
@@ -107,6 +113,8 @@ public sealed class DisplaysPage : Page
 
         AutomationProperties.SetAutomationId(_screens, "Displays.Select");
         AutomationProperties.SetName(_screens, "选择屏幕");
+        AutomationProperties.SetAutomationId(_map, "Displays.Map");
+        AutomationProperties.SetAutomationId(_single, "Displays.Single");
         AutomationProperties.SetAutomationId(_enabled, "Displays.Enabled");
         AutomationProperties.SetName(_enabled, "为这块屏幕使用独立设置");
         AutomationProperties.SetAutomationId(_maximize, "Displays.Maximize");
@@ -114,6 +122,7 @@ public sealed class DisplaysPage : Page
         AutomationProperties.SetAutomationId(_reset, "Displays.Reset");
 
         _screens.SelectionChanged += (_, _) => BuildEditor();
+        _map.Chosen += display => _screens.SelectedItem = display;
         _reset.Click += (_, _) => { if (_reset.Tag is Wpf.Ui.Controls.Button proxy) proxy.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); };
         _enabled.Checked += (_, _) => Change(p => p.Enabled = true);
         _enabled.Unchecked += (_, _) => Change(p => p.Enabled = false);
@@ -143,7 +152,12 @@ public sealed class DisplaysPage : Page
         _device = display.Id;
         // Each section owns its reset subscription, so use one permanent forwarder instead.
         var resetProxy = new Wpf.Ui.Controls.Button();
-        _section = new ParameterSection(_app.GetDisplayEditor(_device), ParameterScope.Taskbar, Parameters.Taskbar, _parameters, _empty, resetProxy, "displays");
+        string device = _device;
+        _section = new ParameterSection(_app.GetDisplayEditor(device), ParameterScope.Taskbar, Parameters.Taskbar, _parameters, _empty, resetProxy, "displays")
+        {
+            // The preview shows this screen's info island.
+            MonitorItems = () => _app.GetDisplayPreferences(device).MonitorItems(_app.DisplayDefaults),
+        };
         _reset.Tag = resetProxy;
         RefreshValues();
     }
@@ -157,7 +171,11 @@ public sealed class DisplaysPage : Page
             _screens.ItemsSource = displays;
             _screens.SelectedItem = displays.FirstOrDefault(d => d.Id == selected) ?? displays.FirstOrDefault();
         }
-        _screens.IsEnabled = displays.Count > 1;
+        // Several screens: the picture to click and the list for the keyboard; one: just its name.
+        bool several = displays.Count > 1;
+        _screens.Visibility = _map.Visibility = several ? Visibility.Visible : Visibility.Collapsed;
+        _single.Visibility = displays.Count == 1 ? Visibility.Visible : Visibility.Collapsed;
+        _single.Text = displays.Count == 1 ? displays[0].Label : "";
         _enabled.IsEnabled = displays.Count > 0;
         int custom = displays.Count(d => _app.GetDisplayPreferences(d.Id).Enabled);
         _screensCaption.Text = displays.Count switch
@@ -177,13 +195,23 @@ public sealed class DisplaysPage : Page
         try
         {
             var p = _app.GetDisplayPreferences(_device);
+            var global = _app.DisplayDefaults;
             _enabled.IsChecked = p.Enabled; _options.IsEnabled = p.Enabled;
             _maximize.SelectedIndex = p.MaximizeMode switch { MaximizeMode.Merge => 1, MaximizeMode.Keep => 2, _ => 0 };
+            ((ComboBoxItem)_maximize.Items[0]).Content = "跟随全局（" + global.MaximizeMode switch
+            {
+                MaximizeMode.Merge => "恢复成整条任务栏",
+                MaximizeMode.AutoHide => "自动隐藏任务栏",
+                _ => "保持浮岛",
+            } + "）";
             foreach (var (box, key) in _monitor)
             {
                 bool? value = key switch { "show" => p.ShowMonitor, "network" => p.MonitorNetwork, "cpu" => p.MonitorCpu, _ => p.MonitorMemory };
+                bool globalValue = key switch { "show" => global.ShowMonitor, "network" => global.MonitorNetwork, "cpu" => global.MonitorCpu, _ => global.MonitorMemory };
+                ((ComboBoxItem)box.Items[0]).Content = globalValue ? "跟随全局（显示）" : "跟随全局（隐藏）";
                 box.SelectedIndex = value switch { true => 1, false => 2, _ => 0 };
             }
+            _map.Show(_app.GetDisplays(), _device, id => _app.GetDisplayPreferences(id).Enabled);
             _section?.Refresh();
             if (_reset.Tag is Wpf.Ui.Controls.Button proxy) _reset.IsEnabled = proxy.IsEnabled;
         }

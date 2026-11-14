@@ -64,4 +64,18 @@ public class DisplayProfileTests
         Assert.False(root["displays"]![1]!["monitor"]!["cpu"]!.GetValue<bool>());
         Assert.True(root["displays"]![1]!["layout"]!["adaptive"]!.GetValue<bool>());
     }
+
+    [Fact]
+    public void AScreensInfoIslandFollowsTheGlobalSettingWhereItHasNoChoice()
+    {
+        var global = new DisplayDefaults(ShowMonitor: true, MonitorNetwork: true, MonitorCpu: false, MonitorMemory: true, MaximizeMode.Merge);
+        var screen = new DisplayPreferences { MonitorNetwork = false, MonitorCpu = true };
+        // Its own choices only count once its own settings are on.
+        Assert.Equal(["network", "memory"], screen.MonitorItems(global));
+        screen.Enabled = true;
+        Assert.Equal(["cpu", "memory"], screen.MonitorItems(global));
+        screen.ShowMonitor = false;
+        Assert.Empty(screen.MonitorItems(global));
+        Assert.Empty(new DisplayPreferences().MonitorItems(global with { ShowMonitor = false }));
+    }
 }
