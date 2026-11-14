@@ -61,7 +61,7 @@ internal static class Program
             Check(!preview.IsExpanded, "Preview should start collapsed");
             Check(!advanced.IsExpanded, "Advanced controls should start collapsed");
             string prefix = scope == ParameterScope.Taskbar ? "island" : "menu";
-            double before = editor.GetParameter(scope, prefix + "Opacity")!.Value;
+            double before = editor.GetParameter(scope, prefix + "Opacity", light)!.Value;
             var clear = Find<Wpf.Ui.Controls.Button>(root, "Preset." + scope + ".clear");
             clear.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Check(clear.Appearance == Wpf.Ui.Controls.ControlAppearance.Primary, "Selected preset highlight");
@@ -71,9 +71,9 @@ internal static class Program
             var undo = Find<Wpf.Ui.Controls.Button>(root, "Undo." + scope);
             Check(undo.IsEnabled, "Preset enables undo");
             undo.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-            Check(Math.Abs(editor.GetParameter(scope, prefix + "Opacity")!.Value - before) < .00001, "Undo restores original appearance");
+            Check(Math.Abs(editor.GetParameter(scope, prefix + "Opacity", light)!.Value - before) < .00001, "Undo restores original appearance");
             opacity.Value = .8;
-            Check(Math.Abs(editor.GetParameter(scope, prefix + "Opacity")!.Value - .2) < .00001, "Slider input maps to tint correctly");
+            Check(Math.Abs(editor.GetParameter(scope, prefix + "Opacity", light)!.Value - .2) < .00001, "Slider input maps to tint correctly");
             if (scope == ParameterScope.Taskbar)
             {
                 var icon = Find<Slider>(root, "Parameter.iconSize");
@@ -90,6 +90,31 @@ internal static class Program
             Check(!reset.IsEnabled, "Reset disables itself");
             undo.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Check(Math.Abs(opacity.Value - .8) < .00001, "Reset is undoable");
+            // The mode Windows isn't in can be edited too: its own values and its own undo.
+            string tint = prefix + "Opacity";
+            double shownTint = editor.GetParameter(scope, tint, light)!.Value;
+            double otherTint = editor.GetParameter(scope, tint, !light)!.Value;
+            var hint = Find<Wpf.Ui.Controls.InfoBar>(root, "ModeHint." + scope);
+            Check(!hint.IsOpen, "No hint while the shown mode is edited");
+            Find<RadioButton>(root, "Mode." + scope + "." + (light ? "dark" : "light")).IsChecked = true;
+            Layout(root);
+            Check(Math.Abs(opacity.Value - (1 - otherTint)) < .00001, "The slider shows the other mode's value");
+            Check(hint.IsOpen, "Editing the other mode says that the desktop shows another one");
+            opacity.Value = .5;
+            Check(editor.Overrides.TryGetValue(tint + (light ? "@dark" : "@light"), out string? edited) &&
+                Math.Abs(double.Parse(edited, CultureInfo.InvariantCulture) - .5) < .00001, "The slider changes the other mode's value");
+            Check(Math.Abs(editor.GetParameter(scope, tint, light)!.Value - shownTint) < .00001, "The shown mode's value stays");
+            Find<Wpf.Ui.Controls.Button>(root, "Reset." + tint).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Check(Math.Abs(editor.GetParameter(scope, tint, !light)!.Value - otherTint) < .00001 &&
+                Math.Abs(editor.GetParameter(scope, tint, light)!.Value - shownTint) < .00001, "A single reset only resets the edited mode");
+            undo.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Check(Math.Abs(opacity.Value - .5) < .00001, "Undo in the other mode brings back its reset value");
+            undo.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Check(Math.Abs(editor.GetParameter(scope, tint, !light)!.Value - otherTint) < .00001 &&
+                Math.Abs(editor.GetParameter(scope, tint, light)!.Value - shownTint) < .00001, "Undo in the other mode only restores that mode");
+            Find<RadioButton>(root, "Mode." + scope + "." + (light ? "light" : "dark")).IsChecked = true;
+            Layout(root);
+            Check(!hint.IsOpen && Math.Abs(opacity.Value - (1 - shownTint)) < .00001, "Back on the shown mode, its value again");
             clear.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Layout(root);
             // Interactive controls must stay inside the available column at both widths.
@@ -437,6 +462,7 @@ internal static class Program
         public IAppearanceEditor GetDisplayEditor(string id) => new MemoryEditor(light);
     }
 
+    /// <summary>The overrides of one theme in memory, edited the way Desk edits them (OverrideEdits).</summary>
     private sealed class MemoryEditor(bool light) : IAppearanceEditor
     {
         private readonly Theme _theme = Theme.Load(Path.Combine(AppContext.BaseDirectory, "themes", "desk-islands.json"));
@@ -446,31 +472,29 @@ internal static class Program
         public string ThemeId => _theme.Id;
         public bool SystemLightMode => light;
         public bool StartMenuLightMode => light;
+        public IReadOnlyDictionary<string, string> Overrides => _settings.OverridesFor(ThemeId);
         public bool HasParameter(string name) => _theme.HasConstant(name);
-        public double? GetParameter(ParameterScope scope, string name) =>
-            double.TryParse(_theme.GetConstant(name, light, _settings.OverridesFor(ThemeId)), NumberStyles.Float,
-                CultureInfo.InvariantCulture, out double value) ? value : null;
-        private void Edit(ParameterScope scope, Action edit)
+        public double? GetParameter(ParameterScope scope, string name, bool mode) =>
+            double.TryParse(GetConstant(name, mode), NumberStyles.Float, CultureInfo.InvariantCulture, out double value) ? value : null;
+        public string? GetConstant(string name, bool mode) => _theme.GetConstant(name, mode, _settings.OverridesFor(ThemeId));
+        public void SetParameter(ParameterScope scope, string name, double value, bool perMode, bool mode)
         {
-            var before = new Dictionary<string, string>(_settings.OverridesFor(ThemeId));
-            edit();
-            _history.Record(ThemeId, scope, before, _settings.OverridesFor(ThemeId), null, DateTime.UtcNow);
+            OverrideEdits.Set(_settings, _history, ThemeId, scope, name, value, perMode, mode, DateTime.UtcNow);
             Changed?.Invoke();
         }
-        public void SetParameter(ParameterScope scope, string name, double value, bool perMode) =>
-            Edit(scope, () => _settings.SetOverride(ThemeId, name, value.ToString(CultureInfo.InvariantCulture), perMode ? light : null));
-        public bool HasChangedParameters(IEnumerable<string> names) => _settings.HasOverrides(ThemeId, names);
-        public void ResetParameters(ParameterScope scope, IEnumerable<string> names) => Edit(scope, () => _settings.ResetOverrides(ThemeId, names));
-        public bool CanUndoAppearance(ParameterScope scope) => _history.CanUndo(ThemeId, scope);
-        public void UndoAppearance(ParameterScope scope) { _history.Undo(_settings, ThemeId, scope); Changed?.Invoke(); }
-        public void ApplyMaterialPreset(ParameterScope scope, MaterialPreset preset) => Edit(scope, () =>
+        public bool HasChangedParameters(IEnumerable<string> names, bool? mode = null) => _settings.HasOverrides(ThemeId, names, mode);
+        public void ResetParameters(ParameterScope scope, IEnumerable<string> names, bool mode, bool onlyThisMode = false)
         {
-            foreach (var (key, value) in preset.Values(scope, light))
-            {
-                var parts = key.Split('@');
-                _settings.SetOverride(ThemeId, parts[0], value, parts.Length > 1 ? light : null);
-            }
-        });
+            OverrideEdits.Reset(_settings, _history, ThemeId, scope, names, mode, onlyThisMode, DateTime.UtcNow);
+            Changed?.Invoke();
+        }
+        public bool CanUndoAppearance(ParameterScope scope, bool mode) => _history.CanUndo(ThemeId, scope, mode);
+        public void UndoAppearance(ParameterScope scope, bool mode) { _history.Undo(_settings, ThemeId, scope, light: mode); Changed?.Invoke(); }
+        public void ApplyMaterialPreset(ParameterScope scope, MaterialPreset preset, bool mode)
+        {
+            OverrideEdits.Preset(_settings, _history, ThemeId, scope, preset, mode, _theme.HasConstant, DateTime.UtcNow);
+            Changed?.Invoke();
+        }
         public string SaveAppearance(string name) => throw new NotSupportedException("UI smoke test never saves user themes.");
     }
 }

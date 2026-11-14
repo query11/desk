@@ -402,9 +402,9 @@ internal sealed partial class DeskApp : ApplicationContext
                 _windows.IsMaximized(display.Device), _lightMode, TaskbarCentered())).ToList();
         _runtime.Write(RuntimeWriter.ExplorerFile, enabled, enabled && _settings.ClickThrough, taskbarRules,
             monitor, layout: new TaskbarLayoutConfig(
-                enabled && !merge && GetParameter(ParameterScope.Taskbar, "adaptiveLayout") == 1,
-                GetParameter(ParameterScope.Taskbar, "buttonWidth") ?? 48,
-                GetParameter(ParameterScope.Taskbar, "iconSize") ?? 28), displays: displayProfiles);
+                enabled && !merge && CurrentNumber(ParameterScope.Taskbar, "adaptiveLayout") == 1,
+                CurrentNumber(ParameterScope.Taskbar, "buttonWidth") ?? 48,
+                CurrentNumber(ParameterScope.Taskbar, "iconSize") ?? 28), displays: displayProfiles);
 
         bool startMenu = enabled && _settings.StyleStartMenu;
         var startRules = startMenu

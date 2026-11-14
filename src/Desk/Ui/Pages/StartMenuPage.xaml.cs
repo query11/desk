@@ -48,11 +48,12 @@ public partial class StartMenuPage : Page
             StyleSwitch.IsChecked = _app.StyleStartMenu;
             SchemeBox.SelectedIndex = (int)_app.StartMenuScheme;
             StyledOptions.IsEnabled = _app.StyleStartMenu;
+            // Which mode the values below are for is chosen under 「正在编辑」.
             ModeText.Text = !_app.StyleStartMenu
                 ? "美化已关闭，开始菜单保持系统原样。打开上面的开关后可以调整。"
                 : _app.StartMenuLightMode
-                    ? "正在调整浅色玻璃的数值（透明程度和明暗统一在浅色、深色下分别保存）。"
-                    : "正在调整深色玻璃的数值（透明程度和明暗统一在浅色、深色下分别保存）。";
+                    ? "开始菜单现在是浅色玻璃。浅色和深色玻璃的数值可以分别调整。"
+                    : "开始菜单现在是深色玻璃。浅色和深色玻璃的数值可以分别调整。";
             _parameters.Refresh();
         }
         finally

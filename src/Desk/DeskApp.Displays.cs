@@ -43,34 +43,34 @@ internal sealed partial class DeskApp : IDisplaySettings
             }
         }
         public bool HasParameter(string name) => app.HasParameter(name);
-        public double? GetParameter(ParameterScope scope, string name) => double.TryParse(app._theme?.GetConstant(name, SystemLightMode,
-            Preferences.Resolve(ThemeId, app.Overrides)), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : null;
-        private void Edit(Action<Settings> change, string? mergeKey = null)
+        public double? GetParameter(ParameterScope scope, string name, bool light) => double.TryParse(GetConstant(name, light),
+            NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : null;
+        public string? GetConstant(string name, bool light) => app._theme?.GetConstant(name, light, Preferences.Resolve(ThemeId, app.Overrides));
+
+        /// <summary>
+        /// Changes this display's overrides through a settings object over
+        /// them, saved at once; taken back when saving fails.
+        /// </summary>
+        private void Edit(Action<Settings, AppearanceHistory, Func<bool>> change)
         {
-            var proxy = Proxy;
-            var before = new Dictionary<string, string>(proxy.OverridesFor(ThemeId));
-            app.UpdateDisplay(id, _ => change(proxy));
-            History.Record(ThemeId, ParameterScope.Taskbar, before, proxy.OverridesFor(ThemeId), mergeKey, DateTime.UtcNow);
+            change(Proxy, History, app._settings.Save);
+            app.Apply();
             app.StateChanged?.Invoke();
         }
-        public void SetParameter(ParameterScope scope, string name, double value, bool perMode) =>
-            Edit(proxy => proxy.SetOverride(ThemeId, name, value.ToString("0.###", CultureInfo.InvariantCulture), perMode ? SystemLightMode : null), name + "|" + SystemLightMode);
-        public bool HasChangedParameters(IEnumerable<string> names) => Proxy.HasOverrides(ThemeId, names);
-        public void ResetParameters(ParameterScope scope, IEnumerable<string> names) => Edit(proxy => proxy.ResetOverrides(ThemeId, names));
-        public bool CanUndoAppearance(ParameterScope scope) => History.CanUndo(ThemeId, ParameterScope.Taskbar);
-        public void UndoAppearance(ParameterScope scope)
+        // Only the taskbar is set per display.
+        public void SetParameter(ParameterScope scope, string name, double value, bool perMode, bool light) => Edit((proxy, history, save) =>
+            OverrideEdits.Set(proxy, history, ThemeId, ParameterScope.Taskbar, name, value, perMode, light, DateTime.UtcNow, save));
+        public bool HasChangedParameters(IEnumerable<string> names, bool? light = null) => Proxy.HasOverrides(ThemeId, names, light);
+        public void ResetParameters(ParameterScope scope, IEnumerable<string> names, bool light, bool onlyThisMode = false) =>
+            Edit((proxy, history, save) => OverrideEdits.Reset(proxy, history, ThemeId, ParameterScope.Taskbar, names, light, onlyThisMode, DateTime.UtcNow, save));
+        public bool CanUndoAppearance(ParameterScope scope, bool light) => History.CanUndo(ThemeId, ParameterScope.Taskbar, light);
+        public void UndoAppearance(ParameterScope scope, bool light)
         {
-            if (!History.Undo(Proxy, ThemeId, ParameterScope.Taskbar, app._settings.Save)) return;
+            if (!History.Undo(Proxy, ThemeId, ParameterScope.Taskbar, app._settings.Save, light)) return;
             app.Apply(); app.StateChanged?.Invoke();
         }
-        public void ApplyMaterialPreset(ParameterScope scope, MaterialPreset preset) => Edit(proxy =>
-        {
-            foreach (var (key, value) in preset.Values(ParameterScope.Taskbar, SystemLightMode))
-            {
-                var parts = key.Split('@');
-                proxy.SetOverride(ThemeId, parts[0], value, parts.Length > 1 ? SystemLightMode : null);
-            }
-        });
+        public void ApplyMaterialPreset(ParameterScope scope, MaterialPreset preset, bool light) => Edit((proxy, history, save) =>
+            OverrideEdits.Preset(proxy, history, ThemeId, ParameterScope.Taskbar, preset, light, app.HasParameter, DateTime.UtcNow, save));
         public string SaveAppearance(string name)
         {
             if (app._theme == null) throw new InvalidOperationException("没有可保存的主题。");

@@ -272,7 +272,9 @@ internal sealed partial class DeskApp : IAppearanceEditor, IThemeLibrary
         if (!_settings.ThemeOverrides.TryGetValue(id, out var values) || !values.Remove(key)) return;
         if (!_settings.Save()) { values[key] = before[key]; throw new IOException("修改没有保存成功。"); }
         var scope = key.StartsWith("menu", StringComparison.Ordinal) ? ParameterScope.StartMenu : ParameterScope.Taskbar;
-        _appearanceHistory.Record(id, scope, before, values, null, DateTime.UtcNow);
+        // Undone on the page showing that mode: the one of the value, or the current one.
+        bool light = key.EndsWith("@light", StringComparison.Ordinal) || (!key.EndsWith("@dark", StringComparison.Ordinal) && IsLight(scope));
+        _appearanceHistory.Record(id, scope, before, values, null, DateTime.UtcNow, light);
         if (id == ThemeId) Apply();
         StateChanged?.Invoke();
     }
@@ -288,75 +290,64 @@ internal sealed partial class DeskApp : IAppearanceEditor, IThemeLibrary
     private IReadOnlyDictionary<string, string> Overrides =>
         _theme == null ? new Dictionary<string, string>() : _settings.OverridesFor(_theme.Id);
 
-    /// <summary>A numeric theme constant as currently used (with the user's changes).</summary>
-    public double? GetParameter(ParameterScope scope, string name)
-    {
-        string? text = _theme?.GetConstant(name, IsLight(scope), Overrides);
-        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
-            ? value
-            : null;
-    }
+    /// <summary>A numeric theme constant as used in a mode (with the user's changes).</summary>
+    public double? GetParameter(ParameterScope scope, string name, bool light) => Number(GetConstant(name, light));
+
+    public string? GetConstant(string name, bool light) => _theme?.GetConstant(name, light, Overrides);
+
+    /// <summary>A numeric constant as the desktop uses it right now.</summary>
+    private double? CurrentNumber(ParameterScope scope, string name) => GetParameter(scope, name, IsLight(scope));
+
+    private static double? Number(string? text) =>
+        double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) ? value : null;
 
     /// <summary>
     /// Changes a constant of the loaded theme. With <paramref name="perMode"/>
-    /// the change only applies to the current light or dark variant (colors
-    /// need different values in each).
+    /// the change only applies to the light or the dark variant (colors need
+    /// different values in each), which need not be the one Windows shows.
     /// </summary>
-    public void SetParameter(ParameterScope scope, string name, double value, bool perMode)
+    public void SetParameter(ParameterScope scope, string name, double value, bool perMode, bool light)
     {
         if (_theme == null)
         {
             return;
         }
-        string text = value.ToString("0.###", CultureInfo.InvariantCulture);
-        var before = new Dictionary<string, string>(Overrides);
-        _settings.SetOverride(_theme.Id, name, text, perMode ? IsLight(scope) : null);
-        _appearanceHistory.Record(_theme.Id, scope, before, Overrides,
-            name + "|" + IsLight(scope), DateTime.UtcNow);
+        OverrideEdits.Set(_settings, _appearanceHistory, _theme.Id, scope, name, value, perMode, light, DateTime.UtcNow);
         ApplySoon();
     }
 
-    public bool HasChangedParameters(IEnumerable<string> names) =>
-        _theme != null && _settings.HasOverrides(_theme.Id, names);
+    public bool HasChangedParameters(IEnumerable<string> names, bool? light = null) =>
+        _theme != null && _settings.HasOverrides(_theme.Id, names, light);
 
     /// <summary>Goes back to the theme's own values for these constants, in this theme only.</summary>
-    public void ResetParameters(ParameterScope scope, IEnumerable<string> names)
+    public void ResetParameters(ParameterScope scope, IEnumerable<string> names, bool light, bool onlyThisMode = false)
     {
         if (_theme == null)
         {
             return;
         }
-        var before = new Dictionary<string, string>(Overrides);
-        _settings.ResetOverrides(_theme.Id, names);
-        _appearanceHistory.Record(_theme.Id, scope, before, Overrides, null, DateTime.UtcNow);
-        _settings.Save();
+        OverrideEdits.Reset(_settings, _appearanceHistory, _theme.Id, scope, names, light, onlyThisMode, DateTime.UtcNow,
+            _settings.Save);
         Apply();
         StateChanged?.Invoke();
     }
 
     private bool IsLight(ParameterScope scope) => scope == ParameterScope.StartMenu ? StartMenuLight : _lightMode;
 
-    public bool CanUndoAppearance(ParameterScope scope) => _appearanceHistory.CanUndo(ThemeId, scope);
+    public bool CanUndoAppearance(ParameterScope scope, bool light) => _appearanceHistory.CanUndo(ThemeId, scope, light);
 
-    public void UndoAppearance(ParameterScope scope)
+    public void UndoAppearance(ParameterScope scope, bool light)
     {
-        if (!_appearanceHistory.Undo(_settings, ThemeId, scope, _settings.Save)) return;
+        if (!_appearanceHistory.Undo(_settings, ThemeId, scope, _settings.Save, light)) return;
         Apply();
         StateChanged?.Invoke();
     }
 
-    public void ApplyMaterialPreset(ParameterScope scope, MaterialPreset preset)
+    public void ApplyMaterialPreset(ParameterScope scope, MaterialPreset preset, bool light)
     {
         if (_theme == null) return;
-        var before = new Dictionary<string, string>(Overrides);
-        foreach (var (key, value) in preset.Values(scope, IsLight(scope)))
-        {
-            var parts = key.Split('@');
-            if (!_theme.HasConstant(parts[0])) continue;
-            _settings.SetOverride(_theme.Id, parts[0], value, parts.Length > 1 ? IsLight(scope) : null);
-        }
-        _appearanceHistory.Record(_theme.Id, scope, before, Overrides, null, DateTime.UtcNow);
-        _settings.Save();
+        OverrideEdits.Preset(_settings, _appearanceHistory, _theme.Id, scope, preset, light, _theme.HasConstant, DateTime.UtcNow,
+            _settings.Save);
         Apply();
         StateChanged?.Invoke();
     }

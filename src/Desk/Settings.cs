@@ -119,15 +119,21 @@ internal sealed class Settings
         }
     }
 
-    public bool HasOverrides(string themeId, IEnumerable<string> names)
+    /// <param name="lightMode">Only count values that apply in this mode; null: any.</param>
+    public bool HasOverrides(string themeId, IEnumerable<string> names, bool? lightMode = null)
     {
         var overrides = OverridesFor(themeId);
-        return names.Any(n => overrides.ContainsKey(n) || overrides.ContainsKey($"{n}@light") ||
-                              overrides.ContainsKey($"{n}@dark"));
+        return names.Any(n => overrides.ContainsKey(n) ||
+                              (lightMode != false && overrides.ContainsKey($"{n}@light")) ||
+                              (lightMode != true && overrides.ContainsKey($"{n}@dark")));
     }
 
-    /// <summary>Back to the theme's own values for these constants (both modes), for this theme only.</summary>
-    public void ResetOverrides(string themeId, IEnumerable<string> names)
+    /// <summary>Back to the theme's own values for these constants, for this theme only.</summary>
+    /// <param name="lightMode">
+    /// Only the value for this mode; a value set for both modes stays for the
+    /// other one. Null: both modes.
+    /// </param>
+    public void ResetOverrides(string themeId, IEnumerable<string> names, bool? lightMode = null)
     {
         if (!ThemeOverrides.TryGetValue(themeId, out var overrides))
         {
@@ -135,6 +141,15 @@ internal sealed class Settings
         }
         foreach (var name in names)
         {
+            if (lightMode is { } light)
+            {
+                if (overrides.Remove(name, out var both))
+                {
+                    overrides.TryAdd($"{name}@{(light ? "dark" : "light")}", both);
+                }
+                overrides.Remove($"{name}@{(light ? "light" : "dark")}");
+                continue;
+            }
             overrides.Remove(name);
             overrides.Remove($"{name}@light");
             overrides.Remove($"{name}@dark");

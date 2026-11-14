@@ -182,4 +182,94 @@ public class AppearanceTests
         history.Undo(settings, settings.Theme, ParameterScope.Taskbar);
         Assert.Equal(before, Snapshot(settings));
     }
+
+    // ---- editing the mode Windows isn't in
+
+    [Fact]
+    public void EditingTheOtherModeChangesOnlyItsValueAndUndoRestoresOnlyIt()
+    {
+        var theme = Theme.Load(Path.Combine(AppContext.BaseDirectory, "themes", "desk-islands.json"));
+        var settings = new Settings();
+        var history = new AppearanceHistory();
+        // Windows shows light, and its tint was tuned first.
+        OverrideEdits.Set(settings, history, theme.Id, ParameterScope.Taskbar, "islandOpacity", 0.3, perMode: true, light: true, Now);
+        string? darkBefore = theme.GetConstant("islandOpacity", false, settings.OverridesFor(theme.Id));
+
+        // Then the dark tint, without switching Windows.
+        OverrideEdits.Set(settings, history, theme.Id, ParameterScope.Taskbar, "islandOpacity", 0.55, perMode: true, light: false, Now.AddSeconds(5));
+        var values = Snapshot(settings, theme.Id);
+        Assert.Equal("0.55", values["islandOpacity@dark"]);
+        Assert.Equal("0.3", values["islandOpacity@light"]);
+        Assert.DoesNotContain("islandOpacity", values.Keys);
+        Assert.Equal("0.3", theme.GetConstant("islandOpacity", true, settings.OverridesFor(theme.Id)));
+
+        // Values that aren't kept per mode stay one value for both.
+        OverrideEdits.Set(settings, history, theme.Id, ParameterScope.Taskbar, "radius", 12, perMode: false, light: false, Now.AddSeconds(6));
+        Assert.Equal("12", Snapshot(settings, theme.Id)["radius"]);
+
+        // Undo while editing dark takes back the dark edits only; the light
+        // one stays, and stays undoable where it was made.
+        Assert.True(history.Undo(settings, theme.Id, ParameterScope.Taskbar, light: false));
+        Assert.True(history.Undo(settings, theme.Id, ParameterScope.Taskbar, light: false));
+        Assert.False(history.CanUndo(theme.Id, ParameterScope.Taskbar, light: false));
+        Assert.Equal(darkBefore, theme.GetConstant("islandOpacity", false, settings.OverridesFor(theme.Id)));
+        Assert.Equal("0.3", Snapshot(settings, theme.Id)["islandOpacity@light"]);
+        Assert.DoesNotContain("radius", Snapshot(settings, theme.Id).Keys);
+        Assert.True(history.CanUndo(theme.Id, ParameterScope.Taskbar, light: true));
+        Assert.True(history.Undo(settings, theme.Id, ParameterScope.Taskbar, light: true));
+        Assert.Empty(Snapshot(settings, theme.Id));
+    }
+
+    [Fact]
+    public void ResettingOneModeKeepsTheOthersValue()
+    {
+        var settings = new Settings();
+        var history = new AppearanceHistory();
+        // One value for both modes, as older settings may have it.
+        settings.SetOverride(settings.Theme, "menuOpacity", "0.4", null);
+        Assert.True(settings.HasOverrides(settings.Theme, ["menuOpacity"], false));
+        OverrideEdits.Reset(settings, history, settings.Theme, ParameterScope.StartMenu, ["menuOpacity"], light: false,
+            onlyThisMode: true, Now);
+        var values = Snapshot(settings);
+        Assert.Equal("0.4", values["menuOpacity@light"]);
+        Assert.DoesNotContain("menuOpacity", values.Keys);
+        Assert.DoesNotContain("menuOpacity@dark", values.Keys);
+        Assert.False(settings.HasOverrides(settings.Theme, ["menuOpacity"], false));
+        Assert.True(settings.HasOverrides(settings.Theme, ["menuOpacity"], true));
+        Assert.True(history.Undo(settings, settings.Theme, ParameterScope.StartMenu, light: false));
+        Assert.Equal("0.4", Snapshot(settings)["menuOpacity"]);
+    }
+
+    [Fact]
+    public void APresetForTheOtherModeOnlySetsThatModesTint()
+    {
+        var settings = new Settings();
+        var history = new AppearanceHistory();
+        settings.SetOverride(settings.Theme, "islandOpacity", "0.6", true);
+        OverrideEdits.Preset(settings, history, settings.Theme, ParameterScope.Taskbar, MaterialPresets.All[0], light: false,
+            _ => true, Now);
+        var values = Snapshot(settings);
+        Assert.Equal("0.6", values["islandOpacity@light"]);
+        Assert.Equal("0.16", values["islandOpacity@dark"]);
+        Assert.Equal("0.2", values["islandLuminosity@dark"]);
+        Assert.DoesNotContain("islandLuminosity@light", values.Keys);
+        Assert.Equal("18", values["islandBlur"]);
+        Assert.False(history.CanUndo(settings.Theme, ParameterScope.Taskbar, light: true));
+    }
+
+    [Fact]
+    public void AnEditThatCanNotBeSavedIsTakenBack()
+    {
+        var settings = new Settings();
+        var history = new AppearanceHistory();
+        settings.SetOverride(settings.Theme, "radius", "8", null);
+        var before = Snapshot(settings);
+        Assert.Throws<IOException>(() => OverrideEdits.Reset(settings, history, settings.Theme, ParameterScope.Taskbar,
+            ["radius"], true, false, Now, () => false));
+        Assert.Equal(before, Snapshot(settings));
+        Assert.Throws<IOException>(() => OverrideEdits.Set(settings, history, settings.Theme, ParameterScope.Taskbar,
+            "radius", 3, false, true, Now, () => false));
+        Assert.Equal(before, Snapshot(settings));
+        Assert.False(history.CanUndo(settings.Theme, ParameterScope.Taskbar, light: true));
+    }
 }
