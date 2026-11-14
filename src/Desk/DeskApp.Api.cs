@@ -4,8 +4,6 @@ using System.Reflection;
 
 namespace Desk;
 
-internal sealed record ThemeInfo(string Id, string Name, string Description, bool IsUserTheme);
-
 /// <summary>What the settings window reads and changes. Used on the UI thread only.</summary>
 internal sealed partial class DeskApp : IAppearanceEditor, IThemeLibrary
 {
@@ -215,18 +213,6 @@ internal sealed partial class DeskApp : IAppearanceEditor, IThemeLibrary
 
     /// <summary>Explorer still runs the engine of an older Desk version.</summary>
     public bool ExplorerOutdated => _targets?.Explorer.Outdated == true || TaskbarStatus == EngineStatus.Outdated;
-
-    public IReadOnlyList<ThemeInfo> GetThemes()
-    {
-        var themes = new List<ThemeInfo>();
-        foreach (var file in ThemeFiles())
-        {
-            var (name, description) = Theme.ReadInfo(file);
-            bool user = file.StartsWith(Paths.UserThemesDir, StringComparison.OrdinalIgnoreCase);
-            themes.Add(new ThemeInfo(Path.GetFileNameWithoutExtension(file), name, description, user));
-        }
-        return themes;
-    }
 
     public IReadOnlyList<ThemeOption> GetAppearanceOptions() => _library.List();
 
