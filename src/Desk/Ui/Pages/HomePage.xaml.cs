@@ -117,21 +117,17 @@ public partial class HomePage : Page
 
     private void RefreshStatus()
     {
-        SummaryText.Text = _app.Enabled
-            ? "已启用 · 各部分的实际生效情况见下方状态。"
-            : "已停用 · 打开开关即可恢复这套外观。";
-
         var taskbar = ShowStatus(TaskbarStatusText, TaskbarStatusIcon, TaskbarStatusRing, _app.Taskbar,
             "任务栏", "资源管理器");
         var startMenu = ShowStatus(StartMenuStatusText, StartMenuStatusIcon, StartMenuStatusRing, _app.StartMenu,
             "开始菜单", "开始菜单");
-        ShowState(taskbar, startMenu);
+        ShowState(OverviewStatus.Of(_app.EngineError != null, _app.Enabled, taskbar, startMenu));
 
         OutdatedBanner.Visibility = _app.ExplorerOutdated ? Visibility.Visible : Visibility.Collapsed;
 
         // The way out of a problem is in the maintenance section: open it
         // when one appears, once, and leave it to the user after that.
-        bool problem = _app.Enabled && (taskbar == Health.Problem || startMenu == Health.Problem);
+        bool problem = _app.Enabled && (taskbar == PartHealth.Problem || startMenu == PartHealth.Problem);
         if (problem && !_hadProblem)
         {
             MaintenanceExpander.IsExpanded = true;
@@ -139,66 +135,54 @@ public partial class HomePage : Page
         _hadProblem = problem;
     }
 
-    /// <summary>The label next to the title: the worst of the two parts decides.</summary>
-    private void ShowState(Health taskbar, Health startMenu)
+    /// <summary>The label next to the title and the line below it: the worst of the two parts decides.</summary>
+    private void ShowState(OverallState state)
     {
-        (string text, string foreground, string background) = (_app.EngineError, _app.Enabled) switch
+        (string foreground, string background) = state switch
         {
-            ({ }, _) => ("无法运行", "SystemFillColorCriticalBrush", "SystemFillColorCriticalBackgroundBrush"),
-            (_, false) => ("已停用", "TextFillColorSecondaryBrush", "SubtleFillColorSecondaryBrush"),
-            _ => (Health)Math.Max((int)taskbar, (int)startMenu) switch
-            {
-                Health.Problem => ("需要注意", "SystemFillColorCautionBrush", "SystemFillColorCautionBackgroundBrush"),
-                Health.Busy => ("正在连接", "TextFillColorSecondaryBrush", "SubtleFillColorSecondaryBrush"),
-                _ => ("运行中", "SystemFillColorSuccessBrush", "SystemFillColorSuccessBackgroundBrush"),
-            },
+            OverallState.Unavailable => ("SystemFillColorCriticalBrush", "SystemFillColorCriticalBackgroundBrush"),
+            OverallState.Problem => ("SystemFillColorCautionBrush", "SystemFillColorCautionBackgroundBrush"),
+            OverallState.Running => ("SystemFillColorSuccessBrush", "SystemFillColorSuccessBackgroundBrush"),
+            _ => ("TextFillColorSecondaryBrush", "SubtleFillColorSecondaryBrush"),
         };
-        StateText.Text = text;
+        StateText.Text = OverviewStatus.Label(state);
+        SummaryText.Text = OverviewStatus.Summary(state);
         StateText.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, foreground);
         StateDot.SetResourceReference(Shape.FillProperty, foreground);
         StatePill.SetResourceReference(Border.BackgroundProperty, background);
     }
 
-    /// <summary>How a part is doing, from good to bad; the order is used to pick the worst.</summary>
-    private enum Health
-    {
-        Fine,
-        Busy,
-        Problem,
-    }
-
     /// <param name="what">The part being styled, for the texts.</param>
     /// <param name="process">The process that has to restart to replace an old engine.</param>
-    private static Health ShowStatus(System.Windows.Controls.TextBlock text, SymbolIcon icon, ProgressRing ring,
+    private static PartHealth ShowStatus(System.Windows.Controls.TextBlock text, SymbolIcon icon, ProgressRing ring,
         TargetStatus status, string what, string process)
     {
         const string secondary = "TextFillColorSecondaryBrush";
         const string caution = "SystemFillColorCautionBrush";
-        (string message, icon.Symbol, string brush, Health health) = status.Status switch
+        (string message, icon.Symbol, string brush) = status.Status switch
         {
-            EngineStatus.Active => ("已生效", SymbolRegular.CheckmarkCircle24, "SystemFillColorSuccessBrush", Health.Fine),
-            EngineStatus.Degraded => ("部分生效", SymbolRegular.Warning24, caution, Health.Problem),
-            EngineStatus.EffectsReduced => ("已生效 · 纯色背景", SymbolRegular.Info24, secondary, Health.Fine),
-            EngineStatus.Connecting => ($"正在连接{what}…", SymbolRegular.ArrowSync24, secondary, Health.Busy),
-            EngineStatus.Initializing => ("引擎已加载，正在初始化…", SymbolRegular.ArrowSync24, secondary, Health.Busy),
-            EngineStatus.Applying => ("正在应用当前设置…", SymbolRegular.ArrowSync24, secondary, Health.Busy),
-            EngineStatus.Waiting => ("下次打开开始菜单时生效", SymbolRegular.Clock24, secondary, Health.Fine),
-            EngineStatus.WaitingForUi => ($"引擎已就绪，{what}出现后生效", SymbolRegular.Clock24, secondary, Health.Fine),
-            EngineStatus.NoTargets => ($"引擎已就绪，但主题规则没有匹配到{what}的界面元素", SymbolRegular.Warning24, caution,
-                Health.Problem),
-            EngineStatus.Failed => ("连接失败", SymbolRegular.Warning24, caution, Health.Problem),
-            EngineStatus.EngineFailed => ("引擎初始化失败", SymbolRegular.Warning24, caution, Health.Problem),
-            EngineStatus.NotResponding => ("引擎没有回应。可以点「重新应用」，仍不行请重启" + process,
-                SymbolRegular.Warning24, caution, Health.Problem),
-            EngineStatus.Outdated => ($"正在运行旧版引擎，重启{process}后更新", SymbolRegular.Info24, secondary, Health.Fine),
-            EngineStatus.Off => ("已关闭", SymbolRegular.Circle24, "TextFillColorTertiaryBrush", Health.Fine),
-            _ => ("无法使用", SymbolRegular.ErrorCircle24, "SystemFillColorCriticalBrush", Health.Problem),
+            EngineStatus.Active => ("已生效", SymbolRegular.CheckmarkCircle24, "SystemFillColorSuccessBrush"),
+            EngineStatus.Degraded => ("部分生效", SymbolRegular.Warning24, caution),
+            EngineStatus.EffectsReduced => ("已生效 · 纯色背景", SymbolRegular.Info24, secondary),
+            EngineStatus.Connecting => ($"正在连接{what}…", SymbolRegular.ArrowSync24, secondary),
+            EngineStatus.Initializing => ("引擎已加载，正在初始化…", SymbolRegular.ArrowSync24, secondary),
+            EngineStatus.Applying => ("正在应用当前设置…", SymbolRegular.ArrowSync24, secondary),
+            EngineStatus.Waiting => ("下次打开开始菜单时生效", SymbolRegular.Clock24, secondary),
+            EngineStatus.WaitingForUi => ($"引擎已就绪，{what}出现后生效", SymbolRegular.Clock24, secondary),
+            EngineStatus.NoTargets => ($"引擎已就绪，但主题规则没有匹配到{what}的界面元素", SymbolRegular.Warning24, caution),
+            EngineStatus.Failed => ("连接失败", SymbolRegular.Warning24, caution),
+            EngineStatus.EngineFailed => ("引擎初始化失败", SymbolRegular.Warning24, caution),
+            EngineStatus.NotResponding => ("引擎没有回应。可以点「重新应用」，仍不行请重启" + process, SymbolRegular.Warning24, caution),
+            EngineStatus.Outdated => ($"正在运行旧版引擎，重启{process}后更新", SymbolRegular.Info24, secondary),
+            EngineStatus.Off => ("已关闭", SymbolRegular.Circle24, "TextFillColorTertiaryBrush"),
+            _ => ("无法使用", SymbolRegular.ErrorCircle24, "SystemFillColorCriticalBrush"),
         };
+        var health = OverviewStatus.HealthOf(status.Status);
         text.Text = status.Detail is { } detail ? $"{message}：{detail}" : message;
         icon.SetResourceReference(IconElement.ForegroundProperty, brush);
 
         // Work in progress spins instead of showing a still icon.
-        bool busy = health == Health.Busy;
+        bool busy = health == PartHealth.Busy;
         ring.IsIndeterminate = busy;
         ring.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         icon.Visibility = busy ? Visibility.Collapsed : Visibility.Visible;

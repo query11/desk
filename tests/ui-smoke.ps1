@@ -365,6 +365,12 @@ Visit-Pages $window 'light-wide' $true $true
 
 # Feedback and confirmations on the overview.
 Open-Page $window 0 | Out-Null
+# Without its engine Desk can't run: the line under the title says so too,
+# instead of "已启用" next to the label.
+$stateText = (Find-Id $window 'StateText').Current.Name
+$summaryText = (Find-Id $window 'SummaryText').Current.Name
+Write-Host "Overview without the engine: '$stateText' · '$summaryText'"
+if ($stateText -ne '无法运行' -or $summaryText -notmatch '没有启动') { Fail "overview without the engine says '$stateText' / '$summaryText'" }
 $maintenance = Find-Id $window 'MaintenanceExpander'
 [object]$expand = $null
 if ($maintenance -and $maintenance.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expand)) {
