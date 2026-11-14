@@ -24,8 +24,8 @@ public partial class MainWindow : FluentWindow
         _snackbars.SetSnackbarPresenter(Snackbars);
         _dialogs.SetDialogHost(Dialogs);
 
-        // Follow light/dark changes of Windows while the window is open.
-        SystemThemeWatcher.Watch(this);
+        // Follow the Windows app mode while the window is open.
+        WindowTheme.Watch(this);
         Loaded += (_, _) =>
         {
             Navigation.Navigate(typeof(HomePage));
@@ -46,17 +46,6 @@ public partial class MainWindow : FluentWindow
             ScrollPageToTop();
             // Again once the new page is laid out, in case it wasn't in place yet.
             Dispatcher.BeginInvoke(ScrollPageToTop, System.Windows.Threading.DispatcherPriority.Loaded);
-        };
-        Closing += (_, _) =>
-        {
-            try
-            {
-                SystemThemeWatcher.UnWatch(this);
-            }
-            catch (InvalidOperationException)
-            {
-                // Not loaded yet; nothing to undo.
-            }
         };
     }
 

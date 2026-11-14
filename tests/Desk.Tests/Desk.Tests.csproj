@@ -18,6 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\src\Desk\AppMode.cs" Link="Production\AppMode.cs" />
     <Compile Include="..\..\src\Desk\Appearance.cs" Link="Production\Appearance.cs" />
     <Compile Include="..\..\src\Desk\AutoHideController.cs" Link="Production\AutoHideController.cs" />
     <Compile Include="..\..\src\Desk\Autostart.cs" Link="Production\Autostart.cs" />

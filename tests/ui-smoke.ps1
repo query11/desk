@@ -134,7 +134,8 @@ function Click($element, [string]$what) {
     return $true
 }
 
-function Save-Shot($window, [string]$name) {
+# The window as it is on screen; the bitmap starts at the window rectangle's corner.
+function Get-Shot($window) {
     $hwnd = [IntPtr]$window.Current.NativeWindowHandle
     $rect = New-Object Native+RECT
     [Native]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
@@ -147,8 +148,49 @@ function Save-Shot($window, [string]$name) {
     [Native]::PrintWindow($hwnd, $hdc, 2) | Out-Null
     $graphics.ReleaseHdc($hdc)
     $graphics.Dispose()
+    return @($bitmap, $rect)
+}
+
+function Save-Shot($window, [string]$name) {
+    $bitmap, $rect = Get-Shot $window
     $bitmap.Save((Join-Path $Out "$name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
     $bitmap.Dispose()
+}
+
+# Average brightness (0 black .. 1 white) of a 5 x 5 patch around a point of the screen.
+function Get-Brightness($bitmap, $rect, [double]$screenX, [double]$screenY) {
+    $sum = 0.0
+    $count = 0
+    for ($dx = -2; $dx -le 2; $dx++) {
+        for ($dy = -2; $dy -le 2; $dy++) {
+            $x = [Math]::Min([Math]::Max([int]$screenX - $rect.Left + $dx, 0), $bitmap.Width - 1)
+            $y = [Math]::Min([Math]::Max([int]$screenY - $rect.Top + $dy, 0), $bitmap.Height - 1)
+            $color = $bitmap.GetPixel($x, $y)
+            $sum += (0.2126 * $color.R + 0.7152 * $color.G + 0.0722 * $color.B) / 255
+            $count++
+        }
+    }
+    return $sum / $count
+}
+
+# Whether the window really shows the mode it should. Measured on the
+# overview's taskbar status card, in its top padding: WPF draws it, so the
+# capture shows it whatever the system backdrop behind the window does.
+# The title bar is only printed, for comparison.
+function Assert-Mode($window, [bool]$light, [string]$what) {
+    $tile = Find-Id $window 'TaskbarTile'
+    if (-not $tile) { Fail "$what`: no status card to check the colors on"; return }
+    $box = $tile.Current.BoundingRectangle
+    $origin = $window.Current.BoundingRectangle
+    $bitmap, $rect = Get-Shot $window
+    try {
+        $card = Get-Brightness $bitmap $rect ($box.Left + $box.Width / 2) ($box.Top + 8)
+        $titleBar = Get-Brightness $bitmap $rect ($origin.Left + $origin.Width / 2) ($origin.Top + 12)
+    } finally { $bitmap.Dispose() }
+    $expected = if ($light) { 'light' } else { 'dark' }
+    Write-Host ("Colors of '{0}' (expected {1}): card {2:0.00}, title bar {3:0.00}" -f $what, $expected, $card, $titleBar)
+    if ($light -and $card -lt 0.5) { Fail "$what`: the window should be light, but its cards are dark ($([Math]::Round($card, 2)))" }
+    if (-not $light -and $card -gt 0.5) { Fail "$what`: the window should be dark, but its cards are light ($([Math]::Round($card, 2)))" }
 }
 
 # Every named control and text in the page, with its place relative to the
@@ -189,9 +231,24 @@ function Write-Layout($window, [string]$title) {
     if ($shown -lt 10) { Fail "$title`: only $shown elements found for the layout check" }
 }
 
+$personalize = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+$modeNames = @('AppsUseLightTheme', 'SystemUsesLightTheme')
+$savedModes = @{}
+if (Test-Path $personalize) {
+    $current = Get-ItemProperty $personalize
+    foreach ($name in $modeNames) { if ($current.PSObject.Properties[$name]) { $savedModes[$name] = $current.$name } }
+} else {
+    New-Item -Force $personalize | Out-Null
+}
+
+# The window follows the app mode; the taskbar and the Start menu follow the
+# Windows mode. They are set opposite to each other, so a window that went by
+# the Windows mode (or by the name of the Windows theme, as WPF UI does) would
+# come out in the wrong colors. Values only: -Force on the existing key would
+# delete its other values.
 function Start-Desk([int]$light) {
-    New-Item -Force 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' | Out-Null
-    Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' AppsUseLightTheme $light -Type DWord
+    Set-ItemProperty $personalize AppsUseLightTheme $light -Type DWord
+    Set-ItemProperty $personalize SystemUsesLightTheme (1 - $light) -Type DWord
     $process = Start-Process (Join-Path $app 'Desk.exe') -PassThru
     $window = Wait-Until {
         $condition = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $process.Id)
@@ -246,10 +303,11 @@ function Assert-Title($window, [string]$expected) {
     return $true
 }
 
-function Visit-Pages($window, [string]$prefix, [bool]$layout) {
+function Visit-Pages($window, [string]$prefix, [bool]$layout, [bool]$light) {
     for ($i = 0; $i -lt $pages.Count; $i++) {
         if (Open-Page $window $i) {
             Save-Shot $window "$prefix-$i-$($pages[$i])"
+            if ($i -eq 0) { Assert-Mode $window $light $prefix }
             if ($layout) { Write-Layout $window "$prefix $($pages[$i])" }
         }
     }
@@ -278,7 +336,7 @@ function Stop-Desk($window, $process, [string]$prefix) {
 # ---------------------------------------------------------------- light mode
 $process, $window = Start-Desk 1
 Set-Size $window 1040 1000
-Visit-Pages $window 'light-wide' $true
+Visit-Pages $window 'light-wide' $true $true
 
 # Feedback and confirmations on the overview.
 Open-Page $window 0 | Out-Null
@@ -302,7 +360,7 @@ Assert-Title $window '任务栏' | Out-Null
 
 # Narrow: the pane folds to icons and the cards keep their content in view.
 Set-Size $window 760 900
-Visit-Pages $window 'light-narrow' $true
+Visit-Pages $window 'light-narrow' $true $true
 
 Set-Size $window 1040 1000
 Stop-Desk $window $process 'light'
@@ -310,8 +368,14 @@ Stop-Desk $window $process 'light'
 # ----------------------------------------------------------------- dark mode
 $process, $window = Start-Desk 0
 Set-Size $window 1040 1000
-Visit-Pages $window 'dark-wide' $false
+Visit-Pages $window 'dark-wide' $false $false
 Stop-Desk $window $process 'dark'
+
+# Back to the modes the machine had.
+foreach ($name in $modeNames) {
+    if ($savedModes.ContainsKey($name)) { Set-ItemProperty $personalize $name $savedModes[$name] -Type DWord }
+    else { Remove-ItemProperty $personalize $name -ErrorAction SilentlyContinue }
+}
 
 # ------------------------------------------------------------------- verdict
 $errors = @(Get-ChildItem $logs -Filter *.log -ErrorAction SilentlyContinue |

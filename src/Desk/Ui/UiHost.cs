@@ -24,6 +24,8 @@ internal static class UiHost
 
         if (_window == null)
         {
+            // The app mode may have changed while no window was open.
+            WindowTheme.Apply();
             _window = new MainWindow();
             // Keyboard input (Tab, arrows, access keys) for a WPF window in
             // a Windows Forms message loop.
@@ -93,6 +95,6 @@ internal static class UiHost
         {
             Source = new Uri("pack://application:,,,/Desk;component/Ui/Styles.xaml", UriKind.Absolute),
         });
-        ApplicationThemeManager.ApplySystemTheme(true);
+        // Light or dark: see ShowWindow and WindowTheme.
     }
 }
