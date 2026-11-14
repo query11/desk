@@ -34,6 +34,7 @@ public partial class HomePage : Page
         {
             _app.StateChanged += Refresh;
             _app.StatusChanged += RefreshStatus;
+            ConflictOpen.AddValueChanged(ConflictInfo, OnConflictToggled);
             Refresh();
             var wallpaper = await WallpaperPreview.LoadAsync();
             await Dispatcher.InvokeAsync(() => { _preview.Wallpaper = wallpaper.Image; _preview.InvalidateVisual(); });
@@ -42,7 +43,26 @@ public partial class HomePage : Page
         {
             _app.StateChanged -= Refresh;
             _app.StatusChanged -= RefreshStatus;
+            ConflictOpen.RemoveValueChanged(ConflictInfo, OnConflictToggled);
         };
+    }
+
+    private static readonly System.ComponentModel.DependencyPropertyDescriptor ConflictOpen =
+        System.ComponentModel.DependencyPropertyDescriptor.FromProperty(InfoBar.IsOpenProperty, typeof(InfoBar));
+
+    /// <summary>The programs the conflict notice is about, in a fixed order.</summary>
+    private string ConflictKey => string.Join("、", _app.Conflicts.Order(StringComparer.Ordinal));
+
+    /// <summary>
+    /// Closed by the user: it stays closed for the same programs while the
+    /// window is open, also when the page is built again.
+    /// </summary>
+    private void OnConflictToggled(object? sender, EventArgs e)
+    {
+        if (!_updating && !ConflictInfo.IsOpen && _app.Conflicts.Count > 0)
+        {
+            UiHost.DismissedConflicts = ConflictKey;
+        }
     }
 
     private async void RestartExplorer()
@@ -84,7 +104,9 @@ public partial class HomePage : Page
             ConflictInfo.Message = _app.Conflicts.Count == 0
                 ? ""
                 : $"检测到 {string.Join("、", _app.Conflicts)} 正在运行。它们也会修改任务栏，可能和 Desk 冲突，建议先关闭它们的任务栏相关功能。";
-            ConflictInfo.IsOpen = _app.Conflicts.Count > 0;
+            // Once the programs are gone, the notice is new again if they return.
+            if (_app.Conflicts.Count == 0) UiHost.DismissedConflicts = null;
+            ConflictInfo.IsOpen = _app.Conflicts.Count > 0 && ConflictKey != UiHost.DismissedConflicts;
         }
         finally
         {

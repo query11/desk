@@ -49,6 +49,9 @@ public partial class MainWindow : FluentWindow
         };
     }
 
+    /// <summary>See <see cref="UiHost.DismissedConflicts"/>.</summary>
+    internal string? DismissedConflicts { get; set; }
+
     private void ScrollPageToTop() => FindScrollViewer(Navigation)?.ScrollToHome();
 
     /// <summary>The first scroll viewer below an element; the page's own ones lie deeper.</summary>

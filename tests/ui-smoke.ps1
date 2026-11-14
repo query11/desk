@@ -313,6 +313,31 @@ function Visit-Pages($window, [string]$prefix, [bool]$layout, [bool]$light) {
     }
 }
 
+# A text that is on screen now (a closed notice may still be in the tree).
+function Find-Shown($root, [string]$name) {
+    Find-Element $root ({ param($c) $c.Name -eq $name -and -not $c.IsOffscreen -and -not $c.BoundingRectangle.IsEmpty }.GetNewClosure())
+}
+
+# The conflict notice on the overview: closed once, it stays closed when the
+# page is built again (on every visit).
+function Test-ConflictNotice($window) {
+    Open-Page $window 0 | Out-Null
+    $title = Find-Shown $window '可能有冲突'
+    if (-not $title) { Fail 'the conflict notice is not on the overview'; Write-Tree $window; return }
+    $row = $title.Current.BoundingRectangle
+    $middle = $row.Top + $row.Height / 2
+    # The notice's own close button: on the line of its title.
+    $close = Find-Element $window ({ param($c) $c.AutomationId -eq 'CloseButton' -and -not $c.IsOffscreen -and
+        [Math]::Abs($c.BoundingRectangle.Top + $c.BoundingRectangle.Height / 2 - $middle) -lt 24 }.GetNewClosure())
+    if (-not (Click $close 'the close button of the conflict notice')) { Write-Tree $window; return }
+    if (-not (Wait-Until { -not (Find-Shown $window '可能有冲突') } 5)) { Fail 'the conflict notice did not close' }
+    Open-Page $window 1 | Out-Null
+    Open-Page $window 0 | Out-Null
+    Start-Sleep -Milliseconds 500
+    if (Find-Shown $window '可能有冲突') { Fail 'the closed conflict notice is back after visiting another page' }
+    Save-Shot $window 'dark-conflict-closed'
+}
+
 # Clicks a button that opens a confirmation, checks the dialog, then answers it.
 function Confirm-Dialog($window, [string]$button, [string]$title, [string]$answer, [string]$shot) {
     if (-not (Click (Find-Id $window $button) $button)) { return }
@@ -366,10 +391,19 @@ Set-Size $window 1040 1000
 Stop-Desk $window $process 'light'
 
 # ----------------------------------------------------------------- dark mode
+# With a program running that also changes the taskbar, as far as Desk can
+# tell: a copy of ping named like Windhawk. Desk looks 3 seconds after it
+# starts, and the overview warns about it.
+$fake = Join-Path $env:RUNNER_TEMP 'windhawk.exe'
+Copy-Item (Join-Path $env:SystemRoot 'System32\PING.EXE') $fake -Force
+$conflict = Start-Process $fake -ArgumentList '-n 900 127.0.0.1' -WindowStyle Hidden -PassThru
 $process, $window = Start-Desk 0
 Set-Size $window 1040 1000
+if (-not (Wait-Until { Find-Shown $window '可能有冲突' } 15)) { Fail 'no conflict notice while "Windhawk" runs' }
 Visit-Pages $window 'dark-wide' $false $false
+Test-ConflictNotice $window
 Stop-Desk $window $process 'dark'
+Stop-Process -Id $conflict.Id -Force -ErrorAction SilentlyContinue
 
 # Back to the modes the machine had.
 foreach ($name in $modeNames) {

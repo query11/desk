@@ -53,6 +53,19 @@ internal static class UiHost
 
     public static void CloseWindow() => _window?.Close();
 
+    /// <summary>
+    /// The conflicting programs whose notice the user closed on the overview;
+    /// forgotten with the window. Pages are built again on every visit.
+    /// </summary>
+    public static string? DismissedConflicts
+    {
+        get => _window?.DismissedConflicts;
+        set
+        {
+            if (_window != null) _window.DismissedConflicts = value;
+        }
+    }
+
     /// <summary>Opens a page of the settings window.</summary>
     public static void Navigate(Type page) => _window?.Navigation.Navigate(page);
 
