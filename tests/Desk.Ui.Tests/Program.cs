@@ -197,6 +197,45 @@ internal static class Program
             Check(Descendants(revisit).OfType<DesktopPreview>().Count() == 10 && state.Light == !light, "A second visit keeps the filter and the preview mode");
             Console.WriteLine($"PASS gallery, {(light ? "light" : "dark")}, {width}px: apply, undo, trial, search, empty, error, preview isolation, revisit, layout");
         }
+        if (!args.Contains("--shell-only"))
+        {
+            // Keyboard focus needs a window: one off screen, never shown in the taskbar.
+            ApplicationThemeManager.Apply(ApplicationTheme.Light);
+            var library = new MemoryLibrary();
+            var gallery = new ThemeGallery(library, true);
+            var root = new Border { Width = 860, Padding = new Thickness(24), Child = gallery };
+            root.SetResourceReference(Border.BackgroundProperty, "ApplicationBackgroundBrush");
+            var host = new Window
+            {
+                Content = root, Left = -32000, Top = -32000, Width = 900, Height = 1400,
+                WindowStyle = WindowStyle.None, ShowInTaskbar = false, ResizeMode = ResizeMode.NoResize,
+            };
+            host.Show();
+            host.Activate();
+            Flush();
+            Wpf.Ui.Controls.Button Press(string id)
+            {
+                var button = Find<Wpf.Ui.Controls.Button>(root, id);
+                Check(button.Focus(), $"{id} can take the keyboard focus");
+                button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                Flush();
+                return button;
+            }
+            var star = Press("Gallery.Favorite.desk-air");
+            var newStar = Find<Wpf.Ui.Controls.Button>(root, "Gallery.Favorite.desk-air");
+            Check(!ReferenceEquals(star, newStar) && newStar.IsKeyboardFocused, "Focus stays on the star of the theme just made a favorite");
+            Press("Gallery.Favorite.desk-air");
+            Check(Find<Wpf.Ui.Controls.Button>(root, "Gallery.Favorite.desk-air").IsKeyboardFocused, "Focus stays on the star when the favorite is removed");
+            var other = Find<Wpf.Ui.Controls.Button>(root, "Gallery.Favorite.desk-frost");
+            Press("Gallery.Apply.desk-air");
+            Check(library.ThemeId == "desk-air", "Applied from the keyboard");
+            Check(Find<Wpf.Ui.Controls.Button>(root, "Gallery.More.desk-air").IsKeyboardFocused, "After applying, focus stays in the theme's card");
+            Check(ReferenceEquals(other, Find<Wpf.Ui.Controls.Button>(root, "Gallery.Favorite.desk-frost")), "Applying builds only the cards whose state changed");
+            gallery.Refresh();
+            Check(ReferenceEquals(other, Find<Wpf.Ui.Controls.Button>(root, "Gallery.Favorite.desk-frost")), "A refresh without changes keeps the cards");
+            host.Close();
+            Console.WriteLine("PASS gallery focus: favorite, unfavorite, apply, refresh without rebuilding");
+        }
         foreach (bool light in new[] { true, false })
         foreach (int width in new[] { 1160, 720 })
         {
@@ -304,6 +343,9 @@ internal static class Program
         }
         app.Shutdown();
     }
+
+    /// <summary>Runs what is queued, layout and deferred focus included.</summary>
+    private static void Flush() => Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
 
     private static void Layout(FrameworkElement root)
     {

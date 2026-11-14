@@ -62,6 +62,17 @@ internal sealed class ThemeGallery : StackPanel
     private bool _updating;
     private System.Windows.Media.ImageSource? _wallpaper;
 
+    // The cards of the last build by theme, with what each showed. A card
+    // whose theme and state didn't change is kept as it is (with the focus
+    // on its buttons); a settings change that doesn't concern the gallery
+    // changes nothing. Previews of the same wallpaper and colors only.
+    private readonly Dictionary<string, (string Key, Border Card)> _built = new(StringComparer.OrdinalIgnoreCase);
+    private string? _builtFor;
+    private System.Windows.Media.ImageSource? _builtWallpaper;
+
+    /// <summary>Focus to put back once applying is done (its button was disabled meanwhile).</summary>
+    private (string Id, int Card)? _pendingFocus;
+
     public ThemeGallery(IThemeLibrary library, bool light, GalleryState? state = null)
     {
         _library = library;
@@ -209,6 +220,11 @@ internal sealed class ThemeGallery : StackPanel
 
     private void BuildCards()
     {
+        // While a theme is applied the cards stay as they are, greyed out;
+        // ApplyAsync builds them once it's done.
+        if (_busy) return;
+        var focus = FocusedCardControl() ?? _pendingFocus;
+        _pendingFocus = null;
         bool light = Light;
         _mode.Content = light ? "浅色预览" : "深色预览";
         _mode.Icon = new SymbolIcon { Symbol = light ? SymbolRegular.WeatherSunny24 : SymbolRegular.WeatherMoon24 };
@@ -232,7 +248,6 @@ internal sealed class ThemeGallery : StackPanel
         string query = _search.Text.Trim();
         var visible = _options.Where(t => Matches(t, _state.Filter)
             && (t.Name + " " + t.Description + " " + t.Tag).Contains(query, StringComparison.CurrentCultureIgnoreCase)).ToList();
-        _cards.Children.Clear();
         _count.Text = $"{visible.Count} 个方案 · 预览是效果示意，实际外观还取决于壁纸、Windows 配色和已保存的微调。";
         _count.Visibility = visible.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         _empty.Visibility = visible.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -242,14 +257,115 @@ internal sealed class ThemeGallery : StackPanel
             : "这里还没有方案。可以切换到「全部」，或在设置中打开主题文件夹。";
         var trial = _library.PendingTrial;
         var monitor = MonitorItems?.Invoke();
-        foreach (var option in visible) _cards.Children.Add(BuildCard(option, trial, light, monitor));
+
+        // What every card shows the same way: when it changes, all are built again.
+        string common = light + "|" + string.Join(",", monitor ?? []);
+        if (common != _builtFor || !ReferenceEquals(_wallpaper, _builtWallpaper))
+        {
+            _built.Clear();
+            _builtFor = common;
+            _builtWallpaper = _wallpaper;
+        }
+        var cards = new List<UIElement>(visible.Count);
+        foreach (var option in visible)
+        {
+            string key = CardKey(option, trial, light);
+            if (!_built.TryGetValue(option.Id, out var built) || built.Key != key)
+            {
+                _built[option.Id] = built = (key, BuildCard(option, trial, light, monitor));
+            }
+            cards.Add(built.Card);
+        }
+        foreach (string gone in _built.Keys.Where(id => !_options.Any(o => Same(o.Id, id))).ToList())
+        {
+            _built.Remove(gone);
+        }
+        // Only when the list changed: a card that stays keeps its focus.
+        if (!_cards.Children.Cast<UIElement>().SequenceEqual(cards))
+        {
+            _cards.Children.Clear();
+            foreach (var card in cards) _cards.Children.Add(card);
+        }
+        RestoreFocus(focus);
     }
 
-    private Border BuildCard(ThemeOption option, ThemeTrial? trial, bool light, IReadOnlyList<string>? monitor)
+    /// <summary>Everything a card shows and does; equal keys build equal cards.</summary>
+    private string CardKey(ThemeOption option, ThemeTrial? trial, bool light)
+    {
+        var (selected, trying, original) = CardState(option, trial);
+        return string.Join("\u001F", option.Id, option.Name, option.Description, option.Tag, option.Error,
+            option.IsUserTheme, option.Favorite, option.Overrides.Count > 0, selected, trying, original,
+            DesktopPreview.Key(option, light));
+    }
+
+    private (bool Selected, bool Trying, bool Original) CardState(ThemeOption option, ThemeTrial? trial)
     {
         bool selected = Same(option.Id, _library.ThemeId);
         bool trying = trial != null && Same(trial.TrialTheme, option.Id);
         bool original = trial != null && Same(trial.OriginalTheme, option.Id) && !trying;
+        return (selected, trying, original);
+    }
+
+    /// <summary>The card control that has keyboard focus, and the place of its card.</summary>
+    private (string Id, int Card)? FocusedCardControl()
+    {
+        for (int i = 0; i < _cards.Children.Count; i++)
+        {
+            var card = _cards.Children[i];
+            if (!card.IsKeyboardFocusWithin) continue;
+            for (var element = System.Windows.Input.Keyboard.FocusedElement as DependencyObject;
+                 element != null && !ReferenceEquals(element, card); element = ParentOf(element))
+            {
+                if (AutomationProperties.GetAutomationId(element) is { Length: > 0 } id) return (id, i);
+            }
+            return null;
+        }
+        return null;
+    }
+
+    private static DependencyObject? ParentOf(DependencyObject element) =>
+        element is System.Windows.Media.Visual ? System.Windows.Media.VisualTreeHelper.GetParent(element) : LogicalTreeHelper.GetParent(element);
+
+    /// <summary>
+    /// Puts the focus back where it was when its control was replaced: the
+    /// same button of the same theme's card, or the next one of that card that
+    /// can take it ("当前方案" can't). When the card is gone (no longer a
+    /// favorite, say), the card that took its place.
+    /// </summary>
+    private void RestoreFocus((string Id, int Card)? focus)
+    {
+        if (focus is not { } was || _cards.Children.Count == 0) return;
+        if (FocusedCardControl() is { } now && now.Id == was.Id) return;
+        string[] parts = was.Id.Split('.', 3);
+        if (parts.Length < 3 || parts[0] != "Gallery") return;
+        var card = _built.TryGetValue(parts[2], out var built) && _cards.Children.Contains(built.Card)
+            ? built.Card
+            : (Border)_cards.Children[Math.Min(was.Card, _cards.Children.Count - 1)];
+        string theme = (string)card.Tag;
+        foreach (string kind in new[] { parts[1], "More", "Favorite" })
+        {
+            if (Find(card, "Gallery." + kind + "." + theme) is not { IsEnabled: true } target) continue;
+            // A new card isn't visible to the keyboard before its first layout.
+            if (!target.Focus())
+                Dispatcher.BeginInvoke(() => target.Focus(), DispatcherPriority.Loaded);
+            return;
+        }
+    }
+
+    private static Button? Find(DependencyObject parent, string id)
+    {
+        for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is Button button && AutomationProperties.GetAutomationId(button) == id) return button;
+            if (Find(child, id) is { } found) return found;
+        }
+        return null;
+    }
+
+    private Border BuildCard(ThemeOption option, ThemeTrial? trial, bool light, IReadOnlyList<string>? monitor)
+    {
+        var (selected, trying, original) = CardState(option, trial);
         bool usable = option.Error == null;
 
         var content = new StackPanel();
@@ -356,7 +472,7 @@ internal sealed class ThemeGallery : StackPanel
         content.Children.Add(body);
 
         bool marked = selected || trying;
-        var card = new Border { Child = content, CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(marked ? 2 : 1), Margin = new Thickness(6, 0, 6, 12) };
+        var card = new Border { Child = content, CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(marked ? 2 : 1), Margin = new Thickness(6, 0, 6, 12), Tag = option.Id };
         // The thicker outline of the current theme must not move its content.
         content.Margin = new Thickness(marked ? 0 : 1);
         card.SetResourceReference(Border.BackgroundProperty, "CardBackgroundFillColorDefaultBrush");
@@ -431,8 +547,24 @@ internal sealed class ThemeGallery : StackPanel
     private Task ApplyAsync(string id)
     {
         if (_busy) return Task.CompletedTask;
+        // Taken before the buttons are disabled, which takes the focus away.
+        var focus = FocusedCardControl();
         _busy = true;
-        BuildCards();
+        // Greyed out where they are: building every card again for a moment
+        // made the gallery flash.
+        var paused = new List<Button>();
+        foreach (var card in _cards.Children.OfType<Border>())
+        {
+            foreach (string kind in new[] { "Apply", "Trial" })
+            {
+                if (Find(card, "Gallery." + kind + "." + card.Tag) is { IsEnabled: true } button)
+                {
+                    button.IsEnabled = false;
+                    paused.Add(button);
+                }
+            }
+        }
+        _undo.IsEnabled = false;
         Feedback("正在应用…", "正在更新任务栏和开始菜单。", InfoBarSeverity.Informational);
         // Paint feedback before the synchronous local configuration write.
         return Dispatcher.InvokeAsync(() =>
@@ -458,6 +590,8 @@ internal sealed class ThemeGallery : StackPanel
             finally
             {
                 _busy = false;
+                foreach (var button in paused) button.IsEnabled = true;
+                _pendingFocus = focus;
                 Refresh();
             }
         }, DispatcherPriority.Background).Task;

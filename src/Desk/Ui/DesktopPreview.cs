@@ -63,6 +63,17 @@ internal sealed class DesktopPreview : FrameworkElement
         InvalidateVisual();
     }
 
+    /// <summary>The theme constants the picture is drawn from.</summary>
+    private static readonly string[] Drawn =
+    [
+        "islandOpacity", "islandLuminosity", "islandBlur", "islandTint", "radius", "gap", "buttonWidth", "iconSize",
+        "menuOpacity", "menuLuminosity", "menuBlur", "menuTint", "menuRadius",
+    ];
+
+    /// <summary>Equal for two options that give the same picture in this mode.</summary>
+    public static string Key(ThemeOption option, bool light) =>
+        option.IsBar + "|" + string.Join("|", Drawn.Select(name => option.Theme?.GetConstant(name, light, option.Overrides)));
+
     private double Number(string key, bool light, double fallback) =>
         double.TryParse(_option?.Theme?.GetConstant(key, light, _option.Overrides), NumberStyles.Float,
             CultureInfo.InvariantCulture, out var value) && double.IsFinite(value) ? value : fallback;
