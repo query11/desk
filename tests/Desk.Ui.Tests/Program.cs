@@ -100,15 +100,17 @@ internal static class Program
             Layout(root);
             Check(Math.Abs(opacity.Value - (1 - otherTint)) < .00001, "The slider shows the other mode's value");
             Check(hint.IsOpen, "Editing the other mode says that the desktop shows another one");
-            opacity.Value = .5;
+            // A value the slider doesn't show yet (desk-islands' light tint is 0.5).
+            double moved = opacity.Value > .5 ? .3 : .7;
+            opacity.Value = moved;
             Check(editor.Overrides.TryGetValue(tint + (light ? "@dark" : "@light"), out string? edited) &&
-                Math.Abs(double.Parse(edited, CultureInfo.InvariantCulture) - .5) < .00001, "The slider changes the other mode's value");
+                Math.Abs(double.Parse(edited, CultureInfo.InvariantCulture) - (1 - moved)) < .00001, "The slider changes the other mode's value");
             Check(Math.Abs(editor.GetParameter(scope, tint, light)!.Value - shownTint) < .00001, "The shown mode's value stays");
             Find<Wpf.Ui.Controls.Button>(root, "Reset." + tint).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Check(Math.Abs(editor.GetParameter(scope, tint, !light)!.Value - otherTint) < .00001 &&
                 Math.Abs(editor.GetParameter(scope, tint, light)!.Value - shownTint) < .00001, "A single reset only resets the edited mode");
             undo.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-            Check(Math.Abs(opacity.Value - .5) < .00001, "Undo in the other mode brings back its reset value");
+            Check(Math.Abs(opacity.Value - moved) < .00001, "Undo in the other mode brings back its reset value");
             undo.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Check(Math.Abs(editor.GetParameter(scope, tint, !light)!.Value - otherTint) < .00001 &&
                 Math.Abs(editor.GetParameter(scope, tint, light)!.Value - shownTint) < .00001, "Undo in the other mode only restores that mode");
