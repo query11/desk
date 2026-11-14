@@ -378,6 +378,16 @@ internal sealed partial class DeskApp : IAppearanceEditor, IThemeLibrary
         }
     }
 
+    /// <summary>Where the settings window was closed last time; null for the first time.</summary>
+    public WindowPlacement? WindowPlacement => _settings.Window;
+
+    /// <summary>Remembers where the settings window is closed, for the next time it opens (also after a restart).</summary>
+    public void RememberWindow(WindowPlacement placement)
+    {
+        _settings.Window = placement;
+        _settings.Save();
+    }
+
     /// <summary>Called when the settings window was closed; Desk keeps running in the tray.</summary>
     public void OnWindowClosed()
     {

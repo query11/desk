@@ -27,9 +27,12 @@ internal static class UiHost
             // The app mode may have changed while no window was open.
             WindowTheme.Apply();
             _window = new MainWindow();
+            // Where and on which page it was closed last time, also before a restart.
+            if (app.WindowPlacement is { } placement) _window.Restore(placement);
             // Keyboard input (Tab, arrows, access keys) for a WPF window in
             // a Windows Forms message loop.
             ElementHost.EnableModelessKeyboardInterop(_window);
+            _window.Closing += (sender, _) => app.RememberWindow(((MainWindow)sender!).Placement());
             _window.Closed += (_, _) =>
             {
                 _window = null;

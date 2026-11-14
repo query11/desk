@@ -26,9 +26,10 @@ public partial class MainWindow : FluentWindow
 
         // Follow the Windows app mode while the window is open.
         WindowTheme.Watch(this);
+        TrackPlacement();
         Loaded += (_, _) =>
         {
-            Navigation.Navigate(typeof(HomePage));
+            Navigation.Navigate(StartPage ?? typeof(HomePage));
             UiHost.App.TrialChanged += RefreshTrial;
             RefreshTrial();
         };
@@ -41,8 +42,9 @@ public partial class MainWindow : FluentWindow
         };
         // All pages share one scrolling area, and it keeps its position: a
         // page opened after scrolling another one would start in the middle.
-        Navigation.Navigated += (_, _) =>
+        Navigation.Navigated += (_, e) =>
         {
+            CurrentPage = e.Page?.GetType();
             ScrollPageToTop();
             // Again once the new page is laid out, in case it wasn't in place yet.
             Dispatcher.BeginInvoke(ScrollPageToTop, System.Windows.Threading.DispatcherPriority.Loaded);

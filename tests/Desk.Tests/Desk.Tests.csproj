@@ -42,6 +42,7 @@
     <Compile Include="..\..\src\Desk\ThemeTrial.cs" Link="Production\ThemeTrial.cs" />
     <Compile Include="..\..\src\Desk\ThemeLibraryStore.cs" Link="Production\ThemeLibraryStore.cs" />
     <Compile Include="..\..\src\Desk\DisplayPreferences.cs" Link="Production\DisplayPreferences.cs" />
+    <Compile Include="..\..\src\Desk\WindowPlacement.cs" Link="Production\WindowPlacement.cs" />
     <Compile Include="..\..\src\Desk\DisplayRuntimePlanner.cs" Link="Production\DisplayRuntimePlanner.cs" />
   </ItemGroup>
 

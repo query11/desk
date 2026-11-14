@@ -338,6 +338,21 @@ function Test-ConflictNotice($window) {
     Save-Shot $window 'dark-conflict-closed'
 }
 
+# A window opened again comes back where it was closed, at its size and on
+# its page, also after Desk restarted.
+function Test-Reopened($window, [int]$x, [int]$y, [int]$width, [int]$height, [string]$page) {
+    $rect = New-Object Native+RECT
+    [Native]::GetWindowRect([IntPtr]$window.Current.NativeWindowHandle, [ref]$rect) | Out-Null
+    $now = "$($rect.Left),$($rect.Top) $($rect.Right - $rect.Left)x$($rect.Bottom - $rect.Top)"
+    Write-Host "Reopened at $now"
+    if ([Math]::Abs($rect.Left - $x) -gt 2 -or [Math]::Abs($rect.Top - $y) -gt 2 -or
+        [Math]::Abs($rect.Right - $rect.Left - $width) -gt 2 -or [Math]::Abs($rect.Bottom - $rect.Top - $height) -gt 2) {
+        Fail "the window reopened at $now, not where it was closed ($x,$y ${width}x$height)"
+    }
+    $heading = $headings[$page]
+    if (-not (Wait-Until { Find-Shown $window $heading } 5)) { Fail "the window did not reopen on the page it was closed on ($page)" }
+}
+
 # Clicks a button that opens a confirmation, checks the dialog, then answers it.
 function Confirm-Dialog($window, [string]$button, [string]$title, [string]$answer, [string]$shot) {
     if (-not (Click (Find-Id $window $button) $button)) { return }
@@ -404,7 +419,10 @@ $fake = Join-Path $env:RUNNER_TEMP 'windhawk.exe'
 Copy-Item (Join-Path $env:SystemRoot 'System32\PING.EXE') $fake -Force
 $conflict = Start-Process $fake -ArgumentList '-n 900 127.0.0.1' -WindowStyle Hidden -PassThru
 $process, $window = Start-Desk 0
+# The light pass closed the window at 20,20, 1040 x 1000, on 设置 (by exiting there).
+Test-Reopened $window 20 20 1040 1000 '设置'
 Set-Size $window 1040 1000
+Open-Page $window 0 | Out-Null
 if (-not (Wait-Until { Find-Shown $window '可能有冲突' } 15)) { Fail 'no conflict notice while "Windhawk" runs' }
 Visit-Pages $window 'dark-wide' $false $false
 Test-ConflictNotice $window

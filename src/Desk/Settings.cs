@@ -87,6 +87,9 @@ internal sealed class Settings
     /// <summary>Whether the tip about closing the window was shown.</summary>
     public bool CloseTipShown { get; set; }
 
+    /// <summary>Where the settings window was closed, and on which page; null opens it in the middle, on the overview.</summary>
+    public WindowPlacement? Window { get; set; }
+
     private static readonly JsonSerializerOptions Options = new()
     {
         WriteIndented = true,
