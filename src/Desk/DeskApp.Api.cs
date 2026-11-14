@@ -348,6 +348,37 @@ internal sealed partial class DeskApp : IAppearanceEditor, IThemeLibrary
         return path;
     }
 
+    // ---------------------------------------------------------------- backup
+
+    /// <summary>备份设置: the settings and the personal themes, in a zip.</summary>
+    public Task BackupSettingsAsync(string path)
+    {
+        // A copy taken now, on the UI thread; the files are written in the background.
+        var settings = Settings.Parse(_settings.ToJson());
+        return Task.Run(() => SettingsBackup.Create(path, settings, Paths.UserThemesDir, Version, DateTime.UtcNow));
+    }
+
+    /// <summary>Reads and checks a backup; nothing changes yet.</summary>
+    public Task<SettingsBackupContents> ReadBackupAsync(string path) => Task.Run(() => SettingsBackup.Read(path));
+
+    /// <summary>
+    /// 从备份恢复: the settings and personal themes of a backup replace the
+    /// current ones, and are applied. When it can't be finished, everything
+    /// stays as it was (IOException with the reason).
+    /// </summary>
+    public void RestoreBackup(SettingsBackupContents backup)
+    {
+        // A running trial would return to a theme of the settings being replaced.
+        if (PendingTrial != null) CancelThemeTrial();
+        SettingsBackup.Restore(backup, _settings, Paths.UserThemesDir, _settings.Save);
+        // Undo steps refer to the values that were replaced.
+        _appearanceHistory.Clear();
+        _displayHistories.Clear();
+        LoadTheme();
+        Apply();
+        StateChanged?.Invoke();
+    }
+
     // --------------------------------------------------------------- actions
 
     public void ShowWindow()

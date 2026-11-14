@@ -208,35 +208,77 @@ internal sealed class Settings
         {
             if (File.Exists(path))
             {
-                settings = JsonSerializer.Deserialize<Settings>(File.ReadAllText(path), Options) ?? new Settings();
+                settings = Parse(File.ReadAllText(path));
             }
         }
         catch (Exception e)
         {
             Log.Warn($"Settings could not be read, using defaults: {e.Message}");
             settings = new Settings();
+            settings.Normalize();
         }
+        if (settings.MigrateLegacyOverrides())
+        {
+            settings.Save(path);
+        }
+        return settings;
+    }
 
-        // Comparers aren't stored: theme ids are file names (any case),
-        // constant names are exact.
+    /// <summary>Settings from their JSON, as Load reads them (without moving old adjustments).</summary>
+    /// <exception cref="JsonException">The text isn't settings JSON.</exception>
+    public static Settings Parse(string json)
+    {
+        var settings = JsonSerializer.Deserialize<Settings>(json, Options) ?? new Settings();
+        settings.Normalize();
+        return settings;
+    }
+
+    /// <summary>The settings as Save writes them.</summary>
+    public string ToJson() => JsonSerializer.Serialize(this, Options);
+
+    /// <summary>Comparers aren't stored: theme ids are file names (any case), constant names are exact.</summary>
+    private void Normalize()
+    {
         var themes = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (theme, overrides) in settings.ThemeOverrides ?? [])
+        foreach (var (theme, overrides) in ThemeOverrides ?? [])
         {
             if (overrides is { Count: > 0 })
             {
                 themes[theme] = new Dictionary<string, string>(overrides, StringComparer.Ordinal);
             }
         }
-        settings.ThemeOverrides = themes;
-        settings.FavoriteThemes = new HashSet<string>(settings.FavoriteThemes ?? [], StringComparer.OrdinalIgnoreCase);
-        settings.Displays = new Dictionary<string, DisplayPreferences>(settings.Displays ?? [], StringComparer.OrdinalIgnoreCase);
-        foreach (var profile in settings.Displays.Values)
+        ThemeOverrides = themes;
+        FavoriteThemes = new HashSet<string>(FavoriteThemes ?? [], StringComparer.OrdinalIgnoreCase);
+        Displays = new Dictionary<string, DisplayPreferences>(Displays ?? [], StringComparer.OrdinalIgnoreCase);
+        foreach (var profile in Displays.Values)
             profile.ThemeOverrides = new Dictionary<string, Dictionary<string, string>>(profile.ThemeOverrides ?? [], StringComparer.OrdinalIgnoreCase);
-        if (settings.MigrateLegacyOverrides())
-        {
-            settings.Save(path);
-        }
-        return settings;
+    }
+
+    /// <summary>
+    /// Takes the settings of a backup, except what belongs to this computer
+    /// or this moment: the styling switch (Enabled), autostart
+    /// (AutostartConfigured, AutostartPath), the window's place (Window), the
+    /// tips already shown, and a trial that was running when the backup was
+    /// made (its theme from before the trial is taken instead).
+    /// </summary>
+    public void RestoreFrom(Settings backup)
+    {
+        Theme = backup.PendingThemeTrial?.OriginalTheme ?? backup.Theme;
+        PendingThemeTrial = null;
+        MaximizeMode = backup.MaximizeMode;
+        StyleStartMenu = backup.StyleStartMenu;
+        StartMenuScheme = backup.StartMenuScheme;
+        ShowMonitor = backup.ShowMonitor;
+        MonitorNetwork = backup.MonitorNetwork;
+        MonitorCpu = backup.MonitorCpu;
+        MonitorMemory = backup.MonitorMemory;
+        ClickThrough = backup.ClickThrough;
+        FavoriteThemes = new HashSet<string>(backup.FavoriteThemes, StringComparer.OrdinalIgnoreCase);
+        Displays = new Dictionary<string, DisplayPreferences>(backup.Displays, StringComparer.OrdinalIgnoreCase);
+        ThemeOverrides = new Dictionary<string, Dictionary<string, string>>(backup.ThemeOverrides, StringComparer.OrdinalIgnoreCase);
+        LegacyOverrides = backup.LegacyOverrides;
+        MigratedOverrides = backup.MigratedOverrides;
+        MigrateLegacyOverrides();
     }
 
     public bool Save() => Save(Paths.SettingsFile);
@@ -247,7 +289,7 @@ internal sealed class Settings
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             string temp = path + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(this, Options));
+            File.WriteAllText(temp, ToJson());
             File.Move(temp, path, overwrite: true);
             return true;
         }

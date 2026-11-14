@@ -73,6 +73,34 @@
         </ui:CardControl>
         <ui:CardControl>
             <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Archive24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <local:CardHeader Title="备份设置" Description="把设置和个人方案打包成一个 zip。更新 Desk 或重装系统前存一份，之后可以从备份恢复。" />
+            </ui:CardControl.Header>
+            <ui:Button
+                x:Name="BackupButton"
+                Content="备份…"
+                Style="{StaticResource Desk.CardButton}" />
+        </ui:CardControl>
+        <ui:CardControl>
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="ArchiveArrowBack24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <local:CardHeader Title="从备份恢复" Description="用备份里的设置和个人方案替换现在的，恢复前会先确认。开机自启、窗口位置和美化开关保持现在的状态。" />
+            </ui:CardControl.Header>
+            <ui:Button
+                x:Name="RestoreButton"
+                Content="恢复…"
+                Style="{StaticResource Desk.CardButton}" />
+        </ui:CardControl>
+        <ui:InfoBar
+            x:Name="BackupInfoBar"
+            Margin="0,0,0,4"
+            IsClosable="True" />
+        <ui:CardControl>
+            <ui:CardControl.Icon>
                 <ui:SymbolIcon Symbol="DocumentText24" />
             </ui:CardControl.Icon>
             <ui:CardControl.Header>

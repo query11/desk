@@ -19,6 +19,8 @@ public partial class SettingsPage : Page
         ThemesFolderButton.Click += (_, _) => _app.OpenThemesFolder();
         LogsFolderButton.Click += (_, _) => _app.OpenLogsFolder();
         ExportDiagnosticsButton.Click += (_, _) => ExportDiagnostics();
+        BackupButton.Click += (_, _) => Backup();
+        RestoreButton.Click += (_, _) => Restore();
         ProjectButton.Click += (_, _) => DeskApp.OpenUrl(ProjectUrl);
         ExitButton.Click += async (_, _) =>
         {
@@ -91,6 +93,86 @@ public partial class SettingsPage : Page
         {
             ExportDiagnosticsButton.IsEnabled = true;
         }
+    }
+
+    private async void Backup()
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "备份设置",
+            FileName = $"Desk-设置备份-{DateTime.Now:yyyyMMdd-HHmmss}.zip",
+            Filter = "Zip 文件|*.zip",
+            DefaultExt = ".zip",
+            AddExtension = true,
+        };
+        if (dialog.ShowDialog(System.Windows.Window.GetWindow(this)) != true)
+        {
+            return;
+        }
+        BackupButton.IsEnabled = false;
+        BackupInfoBar.IsOpen = false;
+        try
+        {
+            await _app.BackupSettingsAsync(dialog.FileName);
+            UiHost.Toast("设置已备份", dialog.FileName);
+        }
+        catch (Exception e)
+        {
+            Log.Error("Backing up the settings failed", e);
+            ShowBackupProblem("没有备份成功", e.Message);
+        }
+        finally
+        {
+            BackupButton.IsEnabled = true;
+        }
+    }
+
+    private async void Restore()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "从备份恢复",
+            Filter = "Desk 设置备份 (*.zip)|*.zip",
+            CheckFileExists = true,
+        };
+        if (dialog.ShowDialog(System.Windows.Window.GetWindow(this)) != true)
+        {
+            return;
+        }
+        RestoreButton.IsEnabled = false;
+        BackupInfoBar.IsOpen = false;
+        try
+        {
+            // Checked completely before asking: a file that can't be used says why, and nothing changes.
+            var backup = await _app.ReadBackupAsync(dialog.FileName);
+            string made = backup.Created is { } created ? created.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "时间不明";
+            string themes = backup.Themes.Count == 0 ? "，没有个人方案" : $"和 {backup.Themes.Count} 个个人方案";
+            if (!await UiHost.ConfirmAsync("从备份恢复？",
+                    $"这份备份做于 {made}，包含设置{themes}。\n\n现在的设置会被替换；同名但内容不同的个人方案会先移到主题目录的 .trash 文件夹。开机自启、窗口位置和美化开关保持现在的状态。",
+                    "恢复", dangerous: true))
+            {
+                return;
+            }
+            _app.RestoreBackup(backup);
+            UiHost.Toast("已从备份恢复", "设置和个人方案已换成备份里的，外观会在几秒内更新。");
+        }
+        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            ShowBackupProblem(e is InvalidDataException ? "这个文件不能用来恢复" : "没有恢复成功", e.Message);
+        }
+        finally
+        {
+            RestoreButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>Errors stay on the page, to be read.</summary>
+    private void ShowBackupProblem(string title, string message)
+    {
+        BackupInfoBar.Severity = Wpf.Ui.Controls.InfoBarSeverity.Error;
+        BackupInfoBar.Title = title;
+        BackupInfoBar.Message = message;
+        BackupInfoBar.IsOpen = true;
     }
 
     private async void SetAutostart(bool enabled)

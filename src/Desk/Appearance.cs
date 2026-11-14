@@ -139,6 +139,9 @@ internal sealed class AppearanceHistory
     private static string Key(string theme, ParameterScope scope, bool? light) =>
         theme + "|" + scope + light switch { true => "|light", false => "|dark", _ => "" };
 
+    /// <summary>Forgets everything, e.g. after the settings were replaced by a backup.</summary>
+    public void Clear() => _history.Clear();
+
     public bool CanUndo(string theme, ParameterScope scope, bool? light = null) =>
         _history.TryGetValue(Key(theme, scope, light), out var entries) && entries.Count > 0;
 
