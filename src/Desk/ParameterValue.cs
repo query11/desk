@@ -66,9 +66,9 @@ internal static class ParameterValue
             // Ｆｕｌｌ－ｗｉｄｔｈ forms (U+FF01–U+FF5E) and the ideographic space.
             result.Append(c switch
             {
-                >= '！' and <= '～' => (char)(c - 0xFEE0),
-                '　' => ' ',
-                '。' => '.',
+                >= '\uFF01' and <= '\uFF5E' => (char)(c - 0xFEE0),
+                '\u3000' => ' ',
+                '\u3002' => '.',
                 _ => c,
             });
         }
