@@ -204,6 +204,8 @@ internal static class Program
             Click("Gallery.Apply.desk-air");
             Check(library.ThemeId == "desk-air", "Apply selected preset");
             Check(!Find<Wpf.Ui.Controls.Button>(root, "Gallery.Apply.desk-air").IsEnabled, "Current preset cannot be reapplied accidentally");
+            // Success goes to a toast at the bottom of the window (none here, without one); "正在应用…" is gone.
+            Check(!Descendants(root).OfType<Wpf.Ui.Controls.InfoBar>().Any(b => b.IsOpen), "A switch that worked leaves no notice on the page");
             Check(Find<Wpf.Ui.Controls.Button>(root, "Gallery.Undo").Visibility == Visibility.Visible, "A switch offers its undo");
             Click("Gallery.Undo");
             Check(library.ThemeId == "desk-islands", "Switch undo restores previous theme");

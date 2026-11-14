@@ -112,7 +112,7 @@ internal sealed class ThemeGallery : StackPanel
             var dialog = new Microsoft.Win32.OpenFileDialog { Title = "导入 Desk 主题", Filter = "Desk 主题 (*.json)|*.json", CheckFileExists = true };
             if (dialog.ShowDialog() != true) return;
             _library.ImportTheme(dialog.FileName); _state.Filter = "我的方案"; _search.Text = "";
-            Feedback("已导入", "导入的方案在「我的方案」中，可以先试用再应用。", InfoBarSeverity.Success);
+            Done("已导入", "导入的方案在「我的方案」中，可以先试用再应用。");
         });
         AutomationProperties.SetAutomationId(import, "Gallery.Import");
         _tools.Children.Add(import);
@@ -521,7 +521,7 @@ internal sealed class ThemeGallery : StackPanel
             Add("导出方案…", SymbolRegular.ArrowUpload24, (_, _) => RunAction(() =>
             {
                 var dialog = new Microsoft.Win32.SaveFileDialog { Title = "导出 Desk 主题", Filter = "Desk 主题 (*.json)|*.json", FileName = option.Id + ".json", DefaultExt = ".json" };
-                if (dialog.ShowDialog() == true) { _library.ExportTheme(option.Id, dialog.FileName); Feedback("已导出", "包含这套方案已保存的微调。", InfoBarSeverity.Success); }
+                if (dialog.ShowDialog() == true) { _library.ExportTheme(option.Id, dialog.FileName); Done("已导出", "包含这套方案已保存的微调。"); }
             }));
         }
         if (option.IsUserTheme)
@@ -577,11 +577,11 @@ internal sealed class ThemeGallery : StackPanel
                 _library.ThemeId = id;
                 if (!Same(previous, id)) _state.Previous = previous;
                 if (trial != null && Same(trial.OriginalTheme, id))
-                    Feedback("已还原", "试用结束，外观回到试用前的方案。", InfoBarSeverity.Success);
+                    Done("已还原", "试用结束，外观回到试用前的方案。");
                 else if (trial != null && Same(trial.TrialTheme, id))
-                    Feedback("已保留这套方案", "之后可以在任务栏和开始菜单页继续微调，也可以撤销切换。", InfoBarSeverity.Success);
+                    Done("已保留这套方案", "之后可以在任务栏和开始菜单页继续微调，也可以撤销切换。");
                 else
-                    Feedback("方案已切换", "外观会在几秒内更新，可以撤销切换；是否生效见概览里的状态。", InfoBarSeverity.Success);
+                    Done("方案已切换", "外观会在几秒内更新，可以撤销切换；是否生效见概览里的状态。");
             }
             catch (Exception e)
             {
@@ -595,6 +595,17 @@ internal sealed class ThemeGallery : StackPanel
                 Refresh();
             }
         }, DispatcherPriority.Background).Task;
+    }
+
+    /// <summary>
+    /// Success, at the bottom of the window, going away by itself like on the
+    /// other pages; what is in progress and errors stay on the page.
+    /// </summary>
+    private void Done(string title, string message)
+    {
+        // "正在应用…" is over.
+        _feedback.IsOpen = false;
+        UiHost.Toast(title, message);
     }
 
     private void Feedback(string title, string message, InfoBarSeverity severity)
