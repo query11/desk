@@ -410,6 +410,8 @@ Visit-Pages $window 'light-wide' $true $true
 
 # Feedback and confirmations on the overview.
 Open-Page $window 0 | Out-Null
+$scroller = Get-Scroller (Find-Id $window 'MaintenanceExpander')
+Write-Host "Page scrolled to $(Get-ScrollPercent $scroller)% once the overview is open"
 # Without its engine Desk can't run: the line under the title says so too,
 # instead of "已启用" next to the label.
 $stateText = (Find-Id $window 'StateText').Current.Name
@@ -421,6 +423,7 @@ $maintenance = Find-Id $window 'MaintenanceExpander'
 if ($maintenance -and $maintenance.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expand)) {
     $expand.Expand()
     Start-Sleep -Milliseconds 300
+    Write-Host "Page scrolled to $(Get-ScrollPercent $scroller)% after expanding 维护与恢复 through UI Automation"
 } else { Fail 'Maintenance expander not found' }
 # Looked into, not checked: after 重新应用 through UI Automation the page was
 # once seen scrolled to its bottom. The log shows where the page is before
@@ -428,6 +431,7 @@ if ($maintenance -and $maintenance.TryGetCurrentPattern([System.Windows.Automati
 $reapply = Find-Id $window 'ReapplyButton'
 $scroller = Get-Scroller $reapply
 $scrollBefore = Get-ScrollPercent $scroller
+Write-Host "Page scrolled to $scrollBefore% after finding 重新应用 through UI Automation"
 Click $reapply 'ReapplyButton' | Out-Null
 if (-not (Wait-Until { Find-Name $window '已重新应用' } 5)) { Fail 'no toast after 重新应用' }
 Start-Sleep -Milliseconds 400
