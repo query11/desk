@@ -178,6 +178,11 @@ function Write-Layout($window, [string]$title) {
                 [int]($box.Top - $origin.Top), [int]$box.Width, [int]$box.Height, $flag)
             $shown++
             if ($past) { Fail "$title`: '$($c.Name)' goes past the right edge of the window" }
+            # WPF UI can't show a symbol past U+FFFF: it comes out as a letter
+            # and a control character ('ԧ' and U+000F) instead of the icon.
+            if ($c.Name -match '[\x00-\x08\x0B\x0C\x0E-\x1F]') {
+                Fail "$title`: an icon shows as the text '$($c.Name)' at $([int]($box.Left - $origin.Left)),$([int]($box.Top - $origin.Top))"
+            }
         } catch { }
     }
     # An empty walk would make the edge check pass without looking at anything.

@@ -57,7 +57,7 @@
         </ui:CardControl>
         <ui:CardControl>
             <ui:CardControl.Icon>
-                <ui:SymbolIcon Symbol="TextBulletList24" />
+                <ui:SymbolIcon Symbol="TextBulletListLtr24" />
             </ui:CardControl.Icon>
             <ui:CardControl.Header>
                 <local:CardHeader Title="显示的内容" Description="信息岛打开后可选。" />

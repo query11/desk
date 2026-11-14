@@ -110,7 +110,8 @@ internal static class Program
             Dispatcher.PushFrame(frame);
             Layout(root);
             Render(root, Path.Combine(output, $"{scope}-{(light ? "light" : "dark")}-{width}-advanced.png"));
-            Console.WriteLine($"PASS {scope}, {(light ? "light" : "dark")}, {width}px: preset, slider, undo, reset, layout");
+            CheckIcons(root, scope.ToString());
+            Console.WriteLine($"PASS {scope}, {(light ? "light" : "dark")}, {width}px: preset, slider, undo, reset, layout, icons");
         }
         if (!args.Contains("--shell-only"))
         foreach (bool light in new[] { true, false })
@@ -130,6 +131,11 @@ internal static class Program
             Check((string)Find<Wpf.Ui.Controls.Button>(root, "Gallery.Filter.推荐").Content == "推荐  7", "Filters show how many themes they hold");
             Check(Find<Wpf.Ui.Controls.Button>(root, "Gallery.Undo").Visibility == Visibility.Collapsed, "Nothing to undo before a switch");
             Render(root, Path.Combine(output, $"Gallery-{(light ? "light" : "dark")}-{width}.png"));
+            CheckIcons(root, "gallery");
+            // The "⋯" menus aren't in the visual tree until they open.
+            foreach (var more in Descendants(root).OfType<Wpf.Ui.Controls.Button>().Where(b => b.ContextMenu != null))
+                foreach (var item in more.ContextMenu.Items.OfType<MenuItem>())
+                    Check(item.Icon is Wpf.Ui.Controls.SymbolIcon { Symbol: var symbol } && (int)symbol <= 0xFFFF, $"gallery menu: icon of '{item.Header}' can't be shown");
             void Click(string id)
             {
                 Find<Wpf.Ui.Controls.Button>(root, id).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
@@ -231,6 +237,7 @@ internal static class Program
                 Check(bounds.Left >= 0 && bounds.Right <= width, "Trial actions fit the shell");
             }
             Check(Descendants(content).OfType<ThemeGallery>().Any(), "Gallery is mounted in real navigation shell");
+            CheckIcons(content, "shell");
             Check(shell.Navigation.PaneDisplayMode == (width >= 960 ? Wpf.Ui.Controls.NavigationViewPaneDisplayMode.Left : Wpf.Ui.Controls.NavigationViewPaneDisplayMode.LeftMinimal), "Shell collapses at narrow width");
             shell.Close();
             Console.WriteLine($"PASS navigation shell, {(light ? "light" : "dark")}, {width}px");
@@ -274,6 +281,7 @@ internal static class Program
             displayTimer.Tick += (_, _) => { displayTimer.Stop(); displayFrame.Continue = false; };
             displayTimer.Start(); Dispatcher.PushFrame(displayFrame); Layout(root);
             Render(root, Path.Combine(output, $"Displays-{(light ? "light" : "dark")}-{width}.png"));
+            CheckIcons(root, "displays");
             foreach (var control in Descendants(root).OfType<FrameworkElement>().Where(e => e is ButtonBase or ComboBox or Slider).Where(VisibleInTree))
             {
                 if (control.ActualWidth == 0) continue;
@@ -338,6 +346,14 @@ internal static class Program
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    // WPF UI turns a symbol into text 16 bits at a time: a symbol past U+FFFF
+    // compiles, but shows as a stray letter ("ԧ") instead of the icon.
+    private static void CheckIcons(DependencyObject root, string where)
+    {
+        foreach (var icon in Descendants(root).OfType<Wpf.Ui.Controls.SymbolIcon>())
+            Check((int)icon.Symbol <= 0xFFFF, $"{where}: icon {icon.Symbol} can't be shown by WPF UI");
     }
 
     private sealed class MemoryLibrary : IThemeLibrary
